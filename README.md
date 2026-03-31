@@ -118,7 +118,8 @@ ops-pilot/
 │   ├── base.py              ← CIProvider ABC (7 methods: get_failures, open_draft_pr, …)
 │   ├── github.py            ← GitHub Actions implementation
 │   ├── gitlab.py            ← GitLab CI implementation
-│   └── jenkins.py           ← Jenkins implementation (delegates git ops to GitHub/GitLab)
+│   ├── jenkins.py           ← Jenkins implementation (delegates git ops to GitHub/GitLab)
+│   └── factory.py           ← make_provider(pipeline, cfg) — wires config to provider
 ├── shared/
 │   ├── models.py            ← Pydantic models: Failure → Triage → Fix → Alert
 │   ├── config.py            ← YAML config + env-var substitution + validation
@@ -129,10 +130,27 @@ ops-pilot/
 │   ├── app.py               ← FastAPI SSE server for local demo
 │   ├── scenarios/           ← 3 pre-recorded realistic failure scenarios (JSON)
 │   └── static/index.html    ← Single-file demo UI — vanilla JS, no build step
-├── docs/                    ← GitHub Pages static demo (no server required)
+├── docs/
+│   ├── index.html           ← GitHub Pages static demo (no server, pure JS)
+│   ├── demo.gif             ← Animated walkthrough embedded in README
+│   └── scenarios/           ← Scenario JSON files served statically
+├── tests/
+│   ├── conftest.py          ← Shared fixtures (sample_failure, mock_backend, …)
+│   ├── test_triage_agent.py
+│   ├── test_fix_agent.py
+│   ├── test_notify_agent.py
+│   ├── test_monitor_agent.py
+│   ├── test_llm_client.py
+│   ├── test_state_store.py
+│   ├── test_task_queue.py
+│   └── fixtures/            ← Sample CI log files
+├── .claude/commands/        ← 5 Claude Code slash commands (see below)
 ├── scripts/
-│   └── watch_and_fix.py     ← Production entry point
-└── ops-pilot.example.yml    ← Fully documented config template
+│   └── watch_and_fix.py     ← Production entry point (continuous watcher)
+├── run_pipeline.py          ← One-shot live runner for manual testing
+├── ops-pilot.example.yml    ← Fully documented config template
+├── Dockerfile
+└── docker-compose.yml       ← demo UI + optional watcher service
 ```
 
 Every agent communicates exclusively through typed Pydantic models — no raw dicts cross boundaries. Every agent is independently testable with a mock backend.

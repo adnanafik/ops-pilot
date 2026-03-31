@@ -9,7 +9,7 @@ model: claude-sonnet-4-6
 github_token: ${GITHUB_TOKEN}
 
 # ── Slack ─────────────────────────────────────────────────────────────────────
-slack_bot_token: ${SLACK_BOT_TOKEN}
+# slack_bot_token: ${SLACK_BOT_TOKEN}
 # slack_webhook_url: ${SLACK_WEBHOOK_URL}
 
 # ── Watcher settings ──────────────────────────────────────────────────────────

@@ -34,7 +34,7 @@ services:
       - DEMO_MODE=false
     volumes:
       - ./ops-pilot.yml:/app/ops-pilot.yml:ro
-      - watcher_state:/app
+      - watcher_state:/app/watcher_state
     restart: unless-stopped
     profiles:
       - watcher   # start explicitly: docker compose --profile watcher up

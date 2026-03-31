@@ -218,7 +218,7 @@ Return the complete fixed file content only."""
         fixed_any = False
         for filepath in files_to_fix:
             try:
-                file_content, blob_id = self.provider.get_file(repo, filepath)
+                file_content, blob_id = self.provider.get_file(repo, filepath, ref=fix_branch)
                 fixed_content = self._generate_code_fix(file_content, triage, filepath)
                 self.provider.update_file(
                     repo=repo,

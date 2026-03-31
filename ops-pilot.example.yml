@@ -1,0 +1,40 @@
+# ops-pilot configuration
+# Copy to ops-pilot.yml and fill in your values.
+# All values can be overridden by environment variables (shown in brackets).
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
+anthropic_api_key: ${ANTHROPIC_API_KEY}        # required for live mode
+model: claude-sonnet-4-6                        # model to use for all agents
+
+# ── GitHub ────────────────────────────────────────────────────────────────────
+github_token: ${GITHUB_TOKEN}                  # classic PAT with repo + workflow scopes
+
+# ── Slack ─────────────────────────────────────────────────────────────────────
+# Option A — bot token (recommended): one token posts to any channel
+slack_bot_token: ${SLACK_BOT_TOKEN}            # xoxb-... token from api.slack.com/apps
+
+# Option B — incoming webhook (simpler): single channel only
+# slack_webhook_url: ${SLACK_WEBHOOK_URL}
+
+# ── Watcher settings ──────────────────────────────────────────────────────────
+poll_interval_seconds: 30                      # how often to check each repo
+state_file: state/ops_pilot_state.json         # persisted across restarts (mount /app/state in Docker)
+
+# ── Pipelines to monitor ──────────────────────────────────────────────────────
+# Add one entry per repo. Each entry can override the global slack channel.
+pipelines:
+  - repo: myorg/backend
+    slack_channel: "#platform-alerts"
+    severity_threshold: medium     # ignore failures below this (low/medium/high/critical)
+
+  - repo: myorg/frontend
+    slack_channel: "#frontend-eng"
+    severity_threshold: high
+
+  - repo: myorg/data-pipeline
+    slack_channel: "#data-eng"
+    severity_threshold: low        # catch everything
+
+  - repo: myorg/payments
+    slack_channel: "#payments-oncall"
+    severity_threshold: medium

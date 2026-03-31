@@ -1,0 +1,19 @@
+FAILED tests/auth/test_token_refresh.py::test_refresh_token_rotation - NullPointerException
+FAILED tests/auth/test_token_refresh.py::test_expired_session_cleanup - NullPointerException
+
+============================== FAILURES ==============================
+_________________ test_refresh_token_rotation _________________
+
+    def test_refresh_token_rotation():
+        session = SessionManager(user_id='usr_abc123')
+>       rotated = session.rotate_token(session.current_token)
+        ^
+AttributeError: 'NoneType' object has no attribute 'rotate_token'
+
+auth/session_manager.py:87: AttributeError
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Captured stderr:
+  ERROR 2026-03-28 14:26:41 session_manager: Redis connection returned None for key session:usr_abc123
+  ERROR 2026-03-28 14:26:41 session_manager: Failed to hydrate SessionManager — falling back to None
+
+2 failed, 47 passed in 18.34s

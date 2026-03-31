@@ -1,0 +1,16 @@
+name: Build and push Docker image
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  build-docker-image:
+    name: build-docker-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push Docker image
+        run: docker build -t data-pipeline:test .

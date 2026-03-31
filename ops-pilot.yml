@@ -1,0 +1,31 @@
+# ops-pilot configuration — sandbox repos for development / demo
+# Environment variables override file values.
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
+anthropic_api_key: ${ANTHROPIC_API_KEY}
+model: claude-sonnet-4-6
+
+# ── GitHub ────────────────────────────────────────────────────────────────────
+github_token: ${GITHUB_TOKEN}
+
+# ── Slack ─────────────────────────────────────────────────────────────────────
+slack_bot_token: ${SLACK_BOT_TOKEN}
+# slack_webhook_url: ${SLACK_WEBHOOK_URL}
+
+# ── Watcher settings ──────────────────────────────────────────────────────────
+poll_interval_seconds: 30
+state_file: ops_pilot_state.json
+
+# ── Pipelines to monitor ──────────────────────────────────────────────────────
+pipelines:
+  - repo: adnanafik/ops-pilot-sandbox-null-pointer
+    slack_channel: "#platform-alerts"
+    severity_threshold: low
+
+  - repo: adnanafik/ops-pilot-sandbox-missing-dep
+    slack_channel: "#platform-alerts"
+    severity_threshold: low
+
+  - repo: adnanafik/ops-pilot-sandbox-flaky-test
+    slack_channel: "#platform-alerts"
+    severity_threshold: low

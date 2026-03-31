@@ -1,0 +1,83 @@
+{
+  "id": "null_pointer_auth",
+  "label": "Null pointer crash — auth service",
+  "pipeline": {
+    "provider": "github_actions",
+    "repo": "acme-corp/platform",
+    "workflow": "ci.yml",
+    "run_id": "8821043901",
+    "branch": "feature/oauth-refresh-tokens",
+    "commit": "a3f21b7",
+    "commit_message": "feat: add refresh token rotation for OAuth sessions",
+    "author": "dev@acme-corp.com",
+    "triggered_at": "2026-03-28T14:22:11Z",
+    "failed_at": "2026-03-28T14:26:43Z",
+    "duration_seconds": 272
+  },
+  "failure": {
+    "job": "test-auth-service",
+    "step": "Run pytest",
+    "exit_code": 1,
+    "log_tail": [
+      "FAILED tests/auth/test_token_refresh.py::test_refresh_token_rotation - NullPointerException",
+      "FAILED tests/auth/test_token_refresh.py::test_expired_session_cleanup - NullPointerException",
+      "",
+      "============================== FAILURES ==============================",
+      "_________________ test_refresh_token_rotation _________________",
+      "",
+      "    def test_refresh_token_rotation():",
+      "        session = SessionManager(user_id='usr_abc123')",
+      ">       rotated = session.rotate_token(session.current_token)",
+      "        ^",
+      "AttributeError: 'NoneType' object has no attribute 'rotate_token'",
+      "",
+      "auth/session_manager.py:87: AttributeError",
+      "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -",
+      "Captured stderr:",
+      "  ERROR 2026-03-28 14:26:41 session_manager: Redis connection returned None for key session:usr_abc123",
+      "  ERROR 2026-03-28 14:26:41 session_manager: Failed to hydrate SessionManager — falling back to None",
+      "",
+      "2 failed, 47 passed in 18.34s"
+    ]
+  },
+  "diff_summary": {
+    "files_changed": ["auth/session_manager.py", "auth/token_store.py"],
+    "lines_added": 84,
+    "lines_removed": 12,
+    "key_change": "Removed null-guard on Redis hydration in SessionManager.__init__ — previously raised ValueError on None, now silently passes None through to callers"
+  },
+  "agents": [
+    {
+      "agent": "monitor",
+      "status": "triggered",
+      "timestamp": "2026-03-28T14:26:45Z",
+      "output": "CI failure detected on acme-corp/platform — branch feature/oauth-refresh-tokens, commit a3f21b7. Job: test-auth-service. 2 tests failed. Handing off to triage."
+    },
+    {
+      "agent": "triage",
+      "status": "complete",
+      "timestamp": "2026-03-28T14:26:52Z",
+      "output": "Root cause identified: commit a3f21b7 removed a null-guard in SessionManager.__init__ (auth/session_manager.py:87). Redis returns None for uncached sessions in the test environment — previously this raised a ValueError (caught by callers), now None propagates to rotate_token() causing AttributeError. This is a regression introduced by the OAuth refresh token feature. Fix confidence: HIGH.",
+      "severity": "high",
+      "affected_service": "auth-service",
+      "regression_introduced_in": "a3f21b7"
+    },
+    {
+      "agent": "fix",
+      "status": "complete",
+      "timestamp": "2026-03-28T14:27:08Z",
+      "output": "Fix generated and draft PR opened.",
+      "pr_title": "fix(auth): restore null-guard in SessionManager Redis hydration",
+      "pr_body": "## Problem\nCommit `a3f21b7` removed a null-guard in `SessionManager.__init__` that previously raised `ValueError` when Redis returned `None` for an uncached session. This causes `AttributeError` in all callers that invoke methods on the resulting `None` object.\n\n## Root cause\n`auth/session_manager.py` line 87 — removed guard:\n```python\n# Before (safe)\nif raw is None:\n    raise ValueError(f'Session not found for user {user_id}')\n\n# After a3f21b7 (broken)\n# guard removed — None propagates silently\n```\n\n## Fix\nRestore the null-guard. Callers are already handling `ValueError` correctly.\n\n## Tests\n`test_refresh_token_rotation` and `test_expired_session_cleanup` will pass after this fix.\n\n---\n*This PR was opened automatically by ops-pilot.*",
+      "pr_url": "https://github.com/acme-corp/platform/pull/1847",
+      "pr_number": 1847
+    },
+    {
+      "agent": "notify",
+      "status": "complete",
+      "timestamp": "2026-03-28T14:27:09Z",
+      "output": "Team notified via Slack #platform-alerts.",
+      "slack_message": ":red_circle: *CI failure — auth-service* | branch `feature/oauth-refresh-tokens` | commit `a3f21b7`\n\n*Root cause:* Null-guard removed in `SessionManager` Redis hydration — `None` propagates to `rotate_token()` causing `AttributeError`.\n\n*Fix:* Draft PR #1847 opened automatically → <https://github.com/acme-corp/platform/pull/1847|View PR>\n\n*Severity:* HIGH | *Confidence:* HIGH | _ops-pilot_"
+    }
+  ]
+}

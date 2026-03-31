@@ -1,0 +1,17 @@
+venv/
+
+# Secrets — never commit
+.env
+
+# Runtime state
+ops_pilot_state.json
+current_tasks/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/

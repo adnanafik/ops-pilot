@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ops-pilot — Agentic CI/CD Responder</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
+      --panel-inactive: #161b22;
+      --panel-active: #1c2128;
+      --panel-done: #0d1f0d;
+      --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+    .tagline { color: var(--muted); font-size: 13px; }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 16px; }
+
+    /* Scenario buttons */
+    .scenarios {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+
+    .scenario-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .scenario-btn:hover { border-color: var(--accent); background: #1c2128; }
+    .scenario-btn.active { border-color: var(--accent); background: #1a2535; color: var(--accent); }
+    .scenario-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Pipeline label */
+    #pipeline-info {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      min-height: 18px;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #1c2128;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      margin-right: 6px;
+    }
+
+    /* Agent panels */
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    @media (max-width: 700px) {
+      .pipeline { grid-template-columns: 1fr 1fr; }
+    }
+
+    .panel {
+      background: var(--panel-inactive);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      transition: background 0.3s, border-color 0.3s;
+      min-height: 160px;
+    }
+
+    .panel.running {
+      border-color: var(--accent);
+      background: var(--panel-active);
+      box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.15);
+    }
+
+    .panel.done {
+      border-color: var(--green);
+      background: var(--panel-done);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .panel-icon { font-size: 16px; }
+    .panel-name { font-weight: 700; font-size: 13px; color: var(--text); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      margin-left: auto;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .panel.running .status-dot { background: var(--accent); animation: pulse 1s infinite; }
+    .panel.done .status-dot { background: var(--green); animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .panel-output {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      min-height: 60px;
+      word-break: break-word;
+    }
+
+    .panel.running .panel-output,
+    .panel.done .panel-output { color: var(--text); }
+
+    .cursor {
+      display: inline-block;
+      width: 6px; height: 12px;
+      background: var(--accent);
+      margin-left: 1px;
+      vertical-align: text-bottom;
+      animation: blink 0.7s step-end infinite;
+    }
+
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    /* Severity badge */
+    .severity {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+
+    .severity-low { background: #1a2535; color: #8b949e; }
+    .severity-medium { background: #2d1f00; color: var(--yellow); }
+    .severity-high { background: #2d0d0d; color: var(--red); }
+    .severity-critical { background: #2d0d2d; color: var(--purple); }
+
+    /* Results section */
+    #results { display: none; margin-top: 16px; }
+    #results.visible { display: block; }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 700px) {
+      .results-grid { grid-template-columns: 1fr; }
+    }
+
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+    }
+
+    .result-card h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .pr-title {
+      font-size: 14px;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .pr-link {
+      display: inline-block;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+
+    .pr-link:hover { background: rgba(88, 166, 255, 0.1); }
+
+    .pr-body {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 8px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    .slack-msg {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      padding: 12px;
+      background: #1a1f26;
+      border-radius: 6px;
+      border-left: 3px solid #4a154b;
+    }
+
+    /* Reset button */
+    #reset-btn {
+      display: none;
+      margin-top: 24px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    #reset-btn:hover { border-color: var(--text); color: var(--text); }
+
+    footer {
+      text-align: center;
+      padding: 32px;
+      color: var(--muted);
+      font-size: 11px;
+      border-top: 1px solid var(--border);
+      margin-top: 48px;
+    }
+
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--accent); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">⚡ ops-pilot</div>
+    <div class="tagline">Agentic CI/CD Incident Responder</div>
+  </div>
+</header>
+
+<main>
+  <h2>Select a scenario</h2>
+  <div class="scenarios" id="scenario-buttons">
+    <!-- Populated dynamically -->
+  </div>
+
+  <div id="pipeline-info"></div>
+
+  <h2>Agent pipeline</h2>
+  <div class="pipeline">
+    <div class="panel" id="panel-monitor">
+      <div class="panel-header">
+        <span class="panel-icon">👁</span>
+        <span class="panel-name">Monitor</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-monitor">Waiting for CI failure…</div>
+    </div>
+
+    <div class="panel" id="panel-triage">
+      <div class="panel-header">
+        <span class="panel-icon">🔍</span>
+        <span class="panel-name">Triage</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-triage">Idle</div>
+      <div id="severity-badge"></div>
+    </div>
+
+    <div class="panel" id="panel-fix">
+      <div class="panel-header">
+        <span class="panel-icon">🔧</span>
+        <span class="panel-name">Fix</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-fix">Idle</div>
+    </div>
+
+    <div class="panel" id="panel-notify">
+      <div class="panel-header">
+        <span class="panel-icon">🔔</span>
+        <span class="panel-name">Notify</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-notify">Idle</div>
+    </div>
+  </div>
+
+  <div id="results">
+    <h2>Results</h2>
+    <div class="results-grid">
+      <div class="result-card" id="card-pr">
+        <h3>Draft Pull Request</h3>
+        <div id="pr-content">—</div>
+      </div>
+      <div class="result-card" id="card-slack">
+        <h3>Slack Notification</h3>
+        <div id="slack-content">—</div>
+      </div>
+    </div>
+  </div>
+
+  <button id="reset-btn">↩ Run another scenario</button>
+</main>
+
+<footer>
+  <a href="https://github.com/adnankhan/ops-pilot" target="_blank">github.com/ops-pilot</a>
+  &nbsp;·&nbsp;
+  <a href="https://ops-pilot.onrender.com" target="_blank">live demo</a>
+  &nbsp;·&nbsp; MIT License
+</footer>
+
+<script>
+  const AGENT_ORDER = ['monitor', 'triage', 'fix', 'notify'];
+  let activeEventSource = null;
+  let running = false;
+
+  // ── Bootstrap ──────────────────────────────────────────────────────────────
+  async function init() {
+    try {
+      const resp = await fetch('/scenarios');
+      const scenarios = await resp.json();
+      const container = document.getElementById('scenario-buttons');
+      scenarios.forEach(s => {
+        const btn = document.createElement('button');
+        btn.className = 'scenario-btn';
+        btn.textContent = s.label;
+        btn.dataset.id = s.id;
+        btn.addEventListener('click', () => startScenario(s.id, btn));
+        container.appendChild(btn);
+      });
+    } catch (e) {
+      console.error('Failed to load scenarios', e);
+    }
+  }
+
+  // ── Run a scenario ─────────────────────────────────────────────────────────
+  async function startScenario(scenarioId, btn) {
+    if (running) return;
+    running = true;
+
+    // Mark active button
+    document.querySelectorAll('.scenario-btn').forEach(b => {
+      b.classList.remove('active');
+      b.disabled = true;
+    });
+    btn.classList.add('active');
+
+    // Reset panels
+    resetPanels();
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('reset-btn').style.display = 'none';
+
+    // Show pipeline metadata
+    try {
+      const resp = await fetch(`/scenarios/${scenarioId}`);
+      const scenario = await resp.json();
+      showPipelineInfo(scenario);
+    } catch (_) {}
+
+    // Open SSE stream
+    if (activeEventSource) activeEventSource.close();
+    const es = new EventSource(`/run/${scenarioId}`, { withCredentials: false });
+    // EventSource doesn't support POST natively — use fetch for POST
+    es.close();
+
+    streamViaFetch(scenarioId);
+  }
+
+  async function streamViaFetch(scenarioId) {
+    const resp = await fetch(`/run/${scenarioId}`, { method: 'POST' });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop(); // last partial chunk
+      for (const part of parts) {
+        if (!part.trim()) continue;
+        const eventMatch = part.match(/^event: (\w+)/m);
+        const dataMatch = part.match(/^data: (.+)/ms);
+        if (!eventMatch || !dataMatch) continue;
+        const event = eventMatch[1];
+        let data;
+        try { data = JSON.parse(dataMatch[1]); } catch(_) { continue; }
+        handleEvent(event, data);
+      }
+    }
+    onStreamDone();
+  }
+
+  // ── SSE event handlers ─────────────────────────────────────────────────────
+  const typewriterQueues = {};
+
+  function handleEvent(event, data) {
+    switch (event) {
+      case 'start':
+        break;
+      case 'agent_start':
+        setPanel(data.agent, 'running');
+        setOutput(data.agent, '');
+        break;
+      case 'chunk':
+        appendOutput(data.agent, data.text);
+        break;
+      case 'agent_complete':
+        setPanel(data.agent, 'done');
+        setOutput(data.agent, data.output || '');
+        if (data.severity) showSeverityBadge(data.severity);
+        if (data.pr_title) showPrResult(data);
+        if (data.slack_message) showSlackResult(data.slack_message);
+        break;
+      case 'done':
+        document.getElementById('results').classList.add('visible');
+        document.getElementById('reset-btn').style.display = 'inline-block';
+        break;
+      case 'error':
+        console.error('Stream error:', data.message);
+        break;
+    }
+  }
+
+  function onStreamDone() {
+    running = false;
+  }
+
+  // ── Panel helpers ──────────────────────────────────────────────────────────
+  function resetPanels() {
+    AGENT_ORDER.forEach(agent => {
+      const panel = document.getElementById(`panel-${agent}`);
+      const out = document.getElementById(`out-${agent}`);
+      panel.className = 'panel';
+      out.textContent = agent === 'monitor' ? 'Waiting for CI failure…' : 'Idle';
+    });
+    document.getElementById('severity-badge').innerHTML = '';
+    document.getElementById('pipeline-info').innerHTML = '';
+  }
+
+  function setPanel(agent, state) {
+    const panel = document.getElementById(`panel-${agent}`);
+    panel.className = `panel ${state}`;
+  }
+
+  function setOutput(agent, text) {
+    const el = document.getElementById(`out-${agent}`);
+    el.textContent = text;
+  }
+
+  function appendOutput(agent, text) {
+    const el = document.getElementById(`out-${agent}`);
+    // Remove cursor if present
+    const cursor = el.querySelector('.cursor');
+    if (cursor) cursor.remove();
+
+    el.appendChild(document.createTextNode(text));
+
+    // Re-add cursor at end
+    const cur = document.createElement('span');
+    cur.className = 'cursor';
+    el.appendChild(cur);
+  }
+
+  function showSeverityBadge(severity) {
+    const badge = document.getElementById('severity-badge');
+    badge.innerHTML = `<span class="severity severity-${severity.toLowerCase()}">${severity.toUpperCase()}</span>`;
+  }
+
+  function showPrResult(data) {
+    const el = document.getElementById('pr-content');
+    el.innerHTML = `
+      <div class="pr-title">${escHtml(data.pr_title || '')}</div>
+      <a class="pr-link" href="${escHtml(data.pr_url || '#')}" target="_blank">
+        View PR #${data.pr_number || '?'} →
+      </a>
+      <div class="pr-body">${escHtml(data.pr_body || '')}</div>
+    `;
+  }
+
+  function showSlackResult(msg) {
+    const el = document.getElementById('slack-content');
+    el.innerHTML = `<div class="slack-msg">${escHtml(msg)}</div>`;
+  }
+
+  function showPipelineInfo(scenario) {
+    const p = scenario.pipeline;
+    const el = document.getElementById('pipeline-info');
+    el.innerHTML = `
+      <span class="badge">${escHtml(p.repo)}</span>
+      <span class="badge">branch: ${escHtml(p.branch)}</span>
+      <span class="badge">commit: ${escHtml(p.commit)}</span>
+      <span class="badge">${escHtml(p.workflow)}</span>
+    `;
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Reset ──────────────────────────────────────────────────────────────────
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    if (activeEventSource) activeEventSource.close();
+    running = false;
+    resetPanels();
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('reset-btn').style.display = 'none';
+    document.querySelectorAll('.scenario-btn').forEach(b => {
+      b.classList.remove('active');
+      b.disabled = false;
+    });
+  });
+
+  // ── Start ──────────────────────────────────────────────────────────────────
+  init();
+</script>
+</body>
+</html>

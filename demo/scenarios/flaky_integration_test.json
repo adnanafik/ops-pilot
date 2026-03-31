@@ -1,0 +1,86 @@
+{
+  "id": "flaky_integration_test",
+  "label": "Flaky integration test — payments service",
+  "pipeline": {
+    "provider": "github_actions",
+    "repo": "acme-corp/payments",
+    "workflow": "integration-tests.yml",
+    "run_id": "8841788203",
+    "branch": "main",
+    "commit": "f7b93a1",
+    "commit_message": "refactor: extract PaymentProcessor into standalone service class",
+    "author": "platform@acme-corp.com",
+    "triggered_at": "2026-03-30T03:44:22Z",
+    "failed_at": "2026-03-30T03:52:17Z",
+    "duration_seconds": 475
+  },
+  "failure": {
+    "job": "integration-tests",
+    "step": "Run integration test suite",
+    "exit_code": 1,
+    "log_tail": [
+      "FAILED tests/integration/test_payment_flow.py::test_stripe_webhook_idempotency - AssertionError",
+      "",
+      "============================== FAILURES ==============================",
+      "_____________ test_stripe_webhook_idempotency _____________",
+      "",
+      "    def test_stripe_webhook_idempotency():",
+      "        payload = load_fixture('stripe_charge_succeeded.json')",
+      "        result1 = client.post('/webhooks/stripe', json=payload)",
+      "        result2 = client.post('/webhooks/stripe', json=payload)",
+      ">       assert result2.status_code == 200",
+      "        AssertionError: assert 409 == 200",
+      "",
+      "tests/integration/test_payment_flow.py:114: AssertionError",
+      "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -",
+      "Captured stderr:",
+      "  WARNING 03:52:14 payments: Idempotency key stripe_evt_3Pq2Xv already processed — returning 409",
+      "  INFO    03:52:14 payments: Previous processing completed at 03:51:58 within same test run",
+      "",
+      "NOTE: This test passed on 7 of the last 10 runs (flaky — timing dependent)",
+      "",
+      "1 failed, 203 passed in 312.44s"
+    ]
+  },
+  "diff_summary": {
+    "files_changed": ["payments/processor.py", "payments/webhook_handler.py", "tests/integration/test_payment_flow.py"],
+    "lines_added": 201,
+    "lines_removed": 87,
+    "key_change": "PaymentProcessor extracted into standalone class. Webhook handler now persists idempotency keys to Postgres instead of in-memory dict. Test does not reset Postgres state between the two webhook calls — idempotency key from call 1 is still present when call 2 runs, causing 409 instead of 200."
+  },
+  "agents": [
+    {
+      "agent": "monitor",
+      "status": "triggered",
+      "timestamp": "2026-03-30T03:52:19Z",
+      "output": "CI failure detected on acme-corp/payments — branch main, commit f7b93a1. Job: integration-tests. 1 test failed (203 passed). Log indicates test has been flaky. Handing off to triage."
+    },
+    {
+      "agent": "triage",
+      "status": "complete",
+      "timestamp": "2026-03-30T03:52:31Z",
+      "output": "Root cause identified — this is a test environment issue, NOT a production bug. Commit f7b93a1 moved idempotency key storage from an in-memory dict (reset automatically between requests in tests) to Postgres (persists across requests within the same test run). The test calls the webhook endpoint twice with the same payload without resetting Postgres state between calls. The 409 on the second call is correct production behavior — the test setup is wrong. Fix: add a teardown fixture that deletes idempotency keys from Postgres between test calls, or generate a unique idempotency key per test run. Production code is correct. Fix confidence: HIGH. Flakiness explained: test passes when the two POST calls happen across separate test sessions (key not present), fails when they share a session (key present from call 1).",
+      "severity": "low",
+      "affected_service": "payments",
+      "regression_introduced_in": "f7b93a1",
+      "production_impact": "none"
+    },
+    {
+      "agent": "fix",
+      "status": "complete",
+      "timestamp": "2026-03-30T03:52:47Z",
+      "output": "Fix generated and draft PR opened.",
+      "pr_title": "fix(tests): reset Postgres idempotency keys between webhook calls in integration test",
+      "pr_body": "## Problem\n`test_stripe_webhook_idempotency` is flaky after `f7b93a1` moved idempotency key storage from in-memory to Postgres.\n\nThe test sends the same webhook payload twice to verify idempotency. With in-memory storage this worked fine — the dict was scoped per request. With Postgres, the key from call 1 persists when call 2 runs, so call 2 correctly returns 409 (idempotent rejection) rather than 200.\n\n**Production code is correct.** The test fixture needs updating.\n\n## Fix\nAdd a `@pytest.fixture` that cleans up the `idempotency_keys` table between calls:\n\n```python\n@pytest.fixture(autouse=True)\ndef clean_idempotency_keys(db_session):\n    yield\n    db_session.execute(text(\"DELETE FROM idempotency_keys WHERE created_at > NOW() - INTERVAL '5 minutes'\"))\n    db_session.commit()\n```\n\nAlternatively, generate a unique `idempotency_key` per test invocation so retries never collide.\n\n## Note\nThis is a test infrastructure fix only. No production code changes. The 409 behavior is correct and desirable.\n\n---\n*This PR was opened automatically by ops-pilot.*",
+      "pr_url": "https://github.com/acme-corp/payments/pull/589",
+      "pr_number": 589
+    },
+    {
+      "agent": "notify",
+      "status": "complete",
+      "timestamp": "2026-03-30T03:52:48Z",
+      "output": "Team notified via Slack #payments-eng.",
+      "slack_message": ":white_circle: *CI flaky test — payments integration suite* | branch `main` | commit `f7b93a1`\n\n*Root cause:* Test fixture not resetting Postgres idempotency keys between webhook calls — production code is correct, test setup needs updating.\n\n*Production impact:* None.\n\n*Fix:* Draft PR #589 opened → <https://github.com/acme-corp/payments/pull/589|View PR>\n\n*Severity:* LOW | *Confidence:* HIGH | _ops-pilot_"
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+name: ops-pilot self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test & lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint with ruff
+        run: ruff check agents/ shared/ tests/
+
+      - name: Run tests with coverage
+        run: pytest --cov=agents --cov=shared --cov-report=xml --cov-fail-under=80
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'demo-mode-no-key-needed' }}
+          DEMO_MODE: "true"
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.11'
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  demo-smoke-test:
+    name: Demo server smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Start demo server
+        run: |
+          cd demo
+          uvicorn app:app --host 127.0.0.1 --port 8000 &
+          echo $! > /tmp/server.pid
+          sleep 3
+        env:
+          DEMO_MODE: "true"
+
+      - name: Test /scenarios endpoint
+        run: |
+          curl -sf http://127.0.0.1:8000/scenarios | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          assert len(data) == 3, f'Expected 3 scenarios, got {len(data)}'
+          print(f'OK — {len(data)} scenarios returned')
+          "
+
+      - name: Test individual scenario endpoint
+        run: |
+          curl -sf http://127.0.0.1:8000/scenarios/null_pointer_auth | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          assert data['id'] == 'null_pointer_auth'
+          assert len(data['agents']) == 4
+          print('OK — null_pointer_auth scenario has 4 agent steps')
+          "
+
+      - name: Stop demo server
+        if: always()
+        run: kill $(cat /tmp/server.pid) 2>/dev/null || true

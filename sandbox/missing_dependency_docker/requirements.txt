@@ -1,0 +1,4 @@
+pandas==2.2.1
+polars==0.20.15
+# BUG: pyarrow>=14.0.1 missing — polars 0.20.15 requires it
+# ops-pilot fix will add: pyarrow==14.0.1

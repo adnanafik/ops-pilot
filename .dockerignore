@@ -1,0 +1,14 @@
+.git
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+*.egg-info
+dist/
+build/
+current_tasks/
+ops_pilot_state.json
+.env
+.env.*
+tests/

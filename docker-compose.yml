@@ -1,0 +1,27 @@
+services:
+  # Demo UI — serves pre-recorded scenarios on http://localhost:8000
+  ops-pilot-demo:
+    build: .
+    env_file: .env
+    ports:
+      - "8000:8000"
+    environment:
+      - DEMO_MODE=${DEMO_MODE:-true}
+    restart: unless-stopped
+
+  # Production watcher — polls configured pipelines and raises PRs / Slack alerts
+  ops-pilot-watcher:
+    build: .
+    env_file: .env
+    command: python3 scripts/watch_and_fix.py
+    environment:
+      - DEMO_MODE=false
+    volumes:
+      - ./ops-pilot.yml:/app/ops-pilot.yml:ro
+      - watcher_state:/app
+    restart: unless-stopped
+    profiles:
+      - watcher   # start explicitly: docker compose --profile watcher up
+
+volumes:
+  watcher_state:

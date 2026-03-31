@@ -1,0 +1,81 @@
+{
+  "id": "missing_dependency_docker",
+  "label": "Missing dependency — Docker build failure",
+  "pipeline": {
+    "provider": "github_actions",
+    "repo": "acme-corp/data-pipeline",
+    "workflow": "build-and-push.yml",
+    "run_id": "8834201977",
+    "branch": "main",
+    "commit": "d9c04e2",
+    "commit_message": "chore: upgrade pandas to 2.2.1 and add polars for faster aggregations",
+    "author": "data-eng@acme-corp.com",
+    "triggered_at": "2026-03-29T09:11:05Z",
+    "failed_at": "2026-03-29T09:18:33Z",
+    "duration_seconds": 448
+  },
+  "failure": {
+    "job": "build-docker-image",
+    "step": "Build and push Docker image",
+    "exit_code": 1,
+    "log_tail": [
+      "#12 [build 6/9] RUN pip install -r requirements.txt",
+      "#12 2.847 Collecting pandas==2.2.1",
+      "#12 3.201 Collecting polars==0.20.15",
+      "#12 4.118 Collecting pyarrow>=14.0.0 (from polars==0.20.15)",
+      "#12 5.933   ERROR: Could not find a version that satisfies the requirement pyarrow>=14.0.0 (from versions: 11.0.0, 12.0.1, 13.0.0)",
+      "#12 5.934   ERROR: No matching distribution found for pyarrow>=14.0.0",
+      "#12 5.935 WARNING: pip is configured with locations that require TLS/SSL, however the SSL module in Python is not available.",
+      "#12 ERROR: process \"/bin/sh -c pip install -r requirements.txt\" did not complete successfully: exit code: 1",
+      "------",
+      "Dockerfile:18",
+      "--------------------",
+      "  17 |   COPY requirements.txt .",
+
+      "  18 | >>> RUN pip install -r requirements.txt",
+      "  19 |   COPY . .",
+      "--------------------",
+      "ERROR: failed to solve: process did not complete successfully: exit code: 1"
+    ]
+  },
+  "diff_summary": {
+    "files_changed": ["requirements.txt", "Dockerfile"],
+    "lines_added": 3,
+    "lines_removed": 1,
+    "key_change": "Added polars==0.20.15 to requirements.txt. Dockerfile base image is python:3.9-slim which ships pyarrow 13.0.0 — polars 0.20.15 requires pyarrow>=14.0.0. Version pinned in base image is incompatible."
+  },
+  "agents": [
+    {
+      "agent": "monitor",
+      "status": "triggered",
+      "timestamp": "2026-03-29T09:18:35Z",
+      "output": "CI failure detected on acme-corp/data-pipeline — branch main, commit d9c04e2. Job: build-docker-image. Docker build failed at pip install step. Handing off to triage."
+    },
+    {
+      "agent": "triage",
+      "status": "complete",
+      "timestamp": "2026-03-29T09:18:43Z",
+      "output": "Root cause identified: polars==0.20.15 requires pyarrow>=14.0.0 but the Dockerfile base image python:3.9-slim ships pyarrow 13.0.0. Two valid fixes: (1) pin pyarrow==14.0.1 explicitly in requirements.txt before polars — pip will upgrade it, or (2) downgrade to polars==0.19.19 which is compatible with pyarrow 13.x. Option 1 is preferred — keeps the newer polars version the author intended. Fix confidence: HIGH.",
+      "severity": "medium",
+      "affected_service": "data-pipeline",
+      "regression_introduced_in": "d9c04e2"
+    },
+    {
+      "agent": "fix",
+      "status": "complete",
+      "timestamp": "2026-03-29T09:18:58Z",
+      "output": "Fix generated and draft PR opened.",
+      "pr_title": "fix(deps): pin pyarrow>=14.0.1 to satisfy polars==0.20.15 requirement",
+      "pr_body": "## Problem\n`polars==0.20.15` requires `pyarrow>=14.0.0` but the Docker base image `python:3.9-slim` ships `pyarrow==13.0.0`. The build fails at the `pip install` step.\n\n## Fix\nAdd explicit `pyarrow==14.0.1` pin to `requirements.txt` *before* the polars line so pip resolves the upgrade correctly.\n\n```diff\n # requirements.txt\n pandas==2.2.1\n+pyarrow==14.0.1\n polars==0.20.15\n```\n\n## Why not downgrade polars?\nThe original commit message indicates polars was added intentionally for performance. Keeping 0.20.15 and resolving the transitive dependency is the right call.\n\n## Verification\nLocal build with this change: `docker build --no-cache .` completes successfully.\n\n---\n*This PR was opened automatically by ops-pilot.*",
+      "pr_url": "https://github.com/acme-corp/data-pipeline/pull/312",
+      "pr_number": 312
+    },
+    {
+      "agent": "notify",
+      "status": "complete",
+      "timestamp": "2026-03-29T09:18:59Z",
+      "output": "Team notified via Slack #data-eng-alerts.",
+      "slack_message": ":yellow_circle: *CI failure — data-pipeline Docker build* | branch `main` | commit `d9c04e2`\n\n*Root cause:* `polars==0.20.15` requires `pyarrow>=14.0.0` — base image only ships 13.0.0. Transitive dependency conflict.\n\n*Fix:* Pin `pyarrow==14.0.1` in requirements.txt. Draft PR #312 opened → <https://github.com/acme-corp/data-pipeline/pull/312|View PR>\n\n*Severity:* MEDIUM | *Confidence:* HIGH | _ops-pilot_"
+    }
+  ]
+}

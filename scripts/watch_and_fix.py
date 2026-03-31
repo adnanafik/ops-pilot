@@ -34,10 +34,6 @@ from agents.triage_agent import TriageAgent
 from agents.fix_agent import FixAgent
 from agents.notify_agent import NotifyAgent
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
 logger = logging.getLogger("ops-pilot")
 
 RESET = "\033[0m"
@@ -230,6 +226,11 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+
+    logging.basicConfig(
+        level=getattr(logging, cfg.log_level),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     if not cfg.pipelines:
         print(f"{RED}No pipelines configured.{RESET}")

@@ -33,6 +33,9 @@ slack_bot_token: ${SLACK_BOT_TOKEN}            # xoxb-... from api.slack.com/app
 # Option B — incoming webhook (simpler): single channel only
 # slack_webhook_url: ${SLACK_WEBHOOK_URL}
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+log_level: WARNING        # DEBUG | INFO | WARNING | ERROR — controls all agent loggers
+
 # ── Watcher settings ──────────────────────────────────────────────────────────
 poll_interval_seconds: 30
 state_file: state/ops_pilot_state.json         # persisted across restarts (mount /app/state in Docker)

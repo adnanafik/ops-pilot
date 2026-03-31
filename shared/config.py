@@ -124,6 +124,15 @@ class OpsPilotConfig(BaseModel):
         description="GCP region for Vertex AI, e.g. 'us-east5'. Defaults to 'us-east5'.",
     )
 
+    @field_validator("log_level")
+    @classmethod
+    def log_level_must_be_valid(cls, v: str) -> str:
+        valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        upper = v.upper()
+        if upper not in valid:
+            raise ValueError(f"log_level must be one of {valid}, got: {v!r}")
+        return upper
+
     @field_validator("llm_provider")
     @classmethod
     def llm_provider_must_be_known(cls, v: str) -> str:
@@ -144,6 +153,12 @@ class OpsPilotConfig(BaseModel):
     # Slack — bot token takes priority over webhook URL
     slack_bot_token: str = Field(default="")
     slack_webhook_url: str = Field(default="")
+
+    # Logging
+    log_level: str = Field(
+        default="WARNING",
+        description="Python log level for all agents: DEBUG | INFO | WARNING | ERROR",
+    )
 
     # Watcher
     poll_interval_seconds: int = Field(default=30, ge=10)
@@ -228,6 +243,7 @@ def load_config(path: Optional[str] = None) -> OpsPilotConfig:
         "slack_bot_token":   os.environ.get("SLACK_BOT_TOKEN", ""),
         "slack_webhook_url": os.environ.get("SLACK_WEBHOOK_URL", ""),
         "model":             os.environ.get("CLAUDE_MODEL", ""),
+        "log_level":         os.environ.get("LOG_LEVEL", ""),
     }
     for key, val in env_overrides.items():
         if val:

@@ -43,12 +43,15 @@ docker compose up ops-pilot-demo
 open http://localhost:8000
 ```
 
-**Run against your real pipelines:**
+**Run against your real pipelines (no local Python needed):**
 
 ```bash
 cp .env.example .env        # add ANTHROPIC_API_KEY + GITHUB_TOKEN
-pip install -e ".[dev]"
-python3 scripts/watch_and_fix.py --once --dry-run   # triage only, no PRs opened
+# edit ops-pilot.yml — add your repos under pipelines:
+docker compose --profile watcher run --rm ops-pilot-watcher \
+  python3 scripts/watch_and_fix.py --once --dry-run   # triage only, no PRs opened
+docker compose --profile watcher run --rm ops-pilot-watcher \
+  python3 scripts/watch_and_fix.py --once              # full run — opens draft PRs
 ```
 
 **Configure your repos in `ops-pilot.yml`:**
@@ -227,11 +230,19 @@ Raw dicts break silently when a key is missing. Pydantic validates at constructi
 
 ## Running tests
 
+No local Python install required — runs inside Docker:
+
+```bash
+docker compose run --rm test                  # 96 tests, 81% coverage
+docker compose run --rm test pytest -k triage # single agent
+docker compose run --rm test ruff check agents/ shared/
+```
+
+Or locally if you have Python 3.11+:
+
 ```bash
 pip install -e ".[dev]"
-pytest                      # 89 tests, 82% coverage
-pytest -k triage            # single agent
-ruff check agents/ shared/  # linting
+pytest
 ```
 
 ---

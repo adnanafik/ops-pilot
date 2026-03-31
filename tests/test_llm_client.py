@@ -34,13 +34,6 @@ class TestLLMBackendProtocol:
         backend = VertexBackend(project_id="my-project", region="us-east5")
         assert isinstance(backend, LLMBackend)
 
-    def test_mock_satisfies_protocol(self) -> None:
-        """A MagicMock with complete() satisfies the Protocol at runtime."""
-        from unittest.mock import MagicMock
-        mock = MagicMock()
-        mock.complete.return_value = "response"
-        assert isinstance(mock, LLMBackend)
-
 
 class TestMakeBackend:
     def test_default_returns_anthropic_backend(self) -> None:

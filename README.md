@@ -14,9 +14,7 @@
 
 > Click a scenario, watch four AI agents light up in sequence, and see the generated PR and Slack message appear — no sign-up, no API key, runs entirely in your browser.
 
-<!-- DEMO GIF: record with Kap or LICEcap and replace this comment
-     with: ![ops-pilot demo](docs/demo.gif)
-     Suggested flow: click "Null pointer crash" → watch all 4 panels complete → show PR card -->
+![ops-pilot demo](docs/demo.gif)
 
 ---
 

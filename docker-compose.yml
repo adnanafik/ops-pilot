@@ -1,7 +1,21 @@
 services:
+  # Run tests inside Docker — no local Python needed
+  # Usage: docker compose run --rm test
+  test:
+    build:
+      context: .
+      target: test
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-demo-mode-no-key-needed}
+      - DEMO_MODE=true
+    profiles:
+      - test
+
   # Demo UI — serves pre-recorded scenarios on http://localhost:8000
   ops-pilot-demo:
-    build: .
+    build:
+      context: .
+      target: app
     env_file: .env
     ports:
       - "8000:8000"
@@ -11,7 +25,9 @@ services:
 
   # Production watcher — polls configured pipelines and raises PRs / Slack alerts
   ops-pilot-watcher:
-    build: .
+    build:
+      context: .
+      target: app
     env_file: .env
     command: python3 scripts/watch_and_fix.py
     environment:

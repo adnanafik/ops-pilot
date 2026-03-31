@@ -11,4 +11,3 @@ current_tasks/
 ops_pilot_state.json
 .env
 .env.*
-tests/

@@ -102,3 +102,35 @@ class TestOpsPilotConfigCloudFields:
         from shared.config import load_config
         cfg = load_config()
         assert cfg.llm_provider == "bedrock"
+
+    def test_invalid_log_level_raises(self) -> None:
+        with pytest.raises(ValueError, match="log_level"):
+            _cfg(log_level="VERBOSE")
+
+    def test_log_level_normalised_to_uppercase(self) -> None:
+        cfg = _cfg(log_level="debug")
+        assert cfg.log_level == "DEBUG"
+
+    def test_has_slack_bot_token(self) -> None:
+        assert _cfg(slack_bot_token="xoxb-test").has_slack is True
+
+    def test_has_slack_webhook(self) -> None:
+        assert _cfg(slack_webhook_url="https://hooks.slack.com/test").has_slack is True
+
+    def test_has_slack_false_by_default(self) -> None:
+        assert _cfg().has_slack is False
+
+    def test_pipeline_invalid_provider_raises(self) -> None:
+        from shared.config import PipelineConfig
+        with pytest.raises(ValueError, match="provider"):
+            PipelineConfig(repo="org/repo", provider="circleci")
+
+    def test_pipeline_repo_must_have_owner(self) -> None:
+        from shared.config import PipelineConfig
+        with pytest.raises(ValueError, match="owner/repo"):
+            PipelineConfig(repo="noslash")
+
+    def test_jenkins_requires_code_host(self) -> None:
+        from shared.config import PipelineConfig
+        with pytest.raises(ValueError, match="code_host"):
+            PipelineConfig(repo="org/repo", provider="jenkins", jenkins_url="https://ci.example.com")

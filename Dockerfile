@@ -1,26 +1,35 @@
-FROM python:3.11-slim
+# ── base: shared deps ─────────────────────────────────────────────────────────
+FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install build tools and app dependencies as a separate cached layer
 COPY pyproject.toml README.md ./
-# Create minimal package stubs so hatchling can resolve the editable install
-RUN mkdir -p agents shared && \
-    touch agents/__init__.py shared/__init__.py && \
+RUN mkdir -p agents shared providers && \
+    touch agents/__init__.py shared/__init__.py providers/__init__.py && \
     pip install --no-cache-dir hatchling && \
-    pip install --no-cache-dir -e .
+    pip install --no-cache-dir -e ".[dev]"
 
-# Copy full source (overwrites the stubs above)
 COPY agents/ agents/
 COPY shared/ shared/
+COPY providers/ providers/
 COPY demo/ demo/
 COPY scripts/ scripts/
 
-# Runtime directories
 RUN mkdir -p current_tasks state
 
-ENV DEMO_MODE=true
 ENV PYTHONUNBUFFERED=1
+
+# ── test: runs pytest inside the container ────────────────────────────────────
+FROM base AS test
+
+COPY tests/ tests/
+
+CMD ["pytest", "--tb=short", "-q"]
+
+# ── app: production demo / watcher ────────────────────────────────────────────
+FROM base AS app
+
+ENV DEMO_MODE=true
 
 EXPOSE 8000
 

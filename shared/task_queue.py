@@ -17,16 +17,14 @@ from __future__ import annotations
 
 import json
 import os
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
 
 
-class TaskState(str, Enum):
+class TaskState(StrEnum):
     """Lifecycle states for a queued task."""
 
     PENDING = "pending"
@@ -43,11 +41,11 @@ class Task:
     state: TaskState
     payload: dict
     created_at: str
-    claimed_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    result: Optional[dict] = None
-    error: Optional[str] = None
-    worker_id: Optional[str] = field(default=None)
+    claimed_at: str | None = None
+    completed_at: str | None = None
+    result: dict | None = None
+    error: str | None = None
+    worker_id: str | None = field(default=None)
 
     def to_dict(self) -> dict:
         """Serialize the task to a plain dict for JSON storage."""
@@ -64,7 +62,7 @@ class Task:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Task":
+    def from_dict(cls, data: dict) -> Task:
         """Deserialize a task from a plain dict."""
         return cls(
             id=data["id"],
@@ -110,7 +108,7 @@ class TaskQueue:
         path.write_text(json.dumps(task.to_dict(), indent=2))
         return task_id
 
-    def claim_next(self, worker_id: Optional[str] = None) -> Optional[Task]:
+    def claim_next(self, worker_id: str | None = None) -> Task | None:
         """Atomically claim the oldest pending task.
 
         Returns the Task on success, or None if the queue is empty.
@@ -160,7 +158,7 @@ class TaskQueue:
         claimed_path.write_text(json.dumps(task.to_dict(), indent=2))
         os.rename(claimed_path, failed_path)
 
-    def list_tasks(self, state: Optional[TaskState] = None) -> list[Task]:
+    def list_tasks(self, state: TaskState | None = None) -> list[Task]:
         """Return all tasks, optionally filtered by state."""
         pattern = f"*.{state.value}.json" if state else "*.json"
         return [
@@ -168,7 +166,7 @@ class TaskQueue:
             for p in sorted(self.base_dir.glob(pattern))
         ]
 
-    def get(self, task_id: str) -> Optional[Task]:
+    def get(self, task_id: str) -> Task | None:
         """Retrieve a task by ID regardless of state."""
         for state in TaskState:
             path = self._path(task_id, state)

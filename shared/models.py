@@ -6,13 +6,12 @@ All inter-agent communication uses these typed models — no raw dicts.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     """Triage severity classification."""
 
     LOW = "low"
@@ -21,7 +20,7 @@ class Severity(str, Enum):
     CRITICAL = "critical"
 
 
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     """Execution status of an agent step."""
 
     PENDING = "pending"
@@ -81,7 +80,7 @@ class Triage(BaseModel):
     severity: Severity
     affected_service: str
     regression_introduced_in: str = Field(..., description="Commit SHA where regression was introduced")
-    production_impact: Optional[str] = Field(None, description="Description of production impact, if any")
+    production_impact: str | None = Field(None, description="Description of production impact, if any")
     fix_confidence: str = Field(..., description="HIGH / MEDIUM / LOW")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
@@ -116,15 +115,15 @@ class AgentStep(BaseModel):
     timestamp: datetime
     output: str
     # Optional fields that vary by agent
-    severity: Optional[Severity] = None
-    affected_service: Optional[str] = None
-    regression_introduced_in: Optional[str] = None
-    production_impact: Optional[str] = None
-    pr_title: Optional[str] = None
-    pr_body: Optional[str] = None
-    pr_url: Optional[str] = None
-    pr_number: Optional[int] = None
-    slack_message: Optional[str] = None
+    severity: Severity | None = None
+    affected_service: str | None = None
+    regression_introduced_in: str | None = None
+    production_impact: str | None = None
+    pr_title: str | None = None
+    pr_body: str | None = None
+    pr_url: str | None = None
+    pr_number: int | None = None
+    slack_message: str | None = None
 
 
 class Scenario(BaseModel):

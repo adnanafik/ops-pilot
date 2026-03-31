@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime
 from urllib.parse import quote
 
 import httpx
@@ -125,7 +124,7 @@ class GitLabProvider(CIProvider):
                 result[sha] = {"number": mr["iid"], "html_url": mr["web_url"], **mr}
         return result
 
-    def _get_failed_job(self, repo: str, pipeline_id: int) -> Optional[dict]:
+    def _get_failed_job(self, repo: str, pipeline_id: int) -> dict | None:
         """Return the first failed job for a pipeline."""
         pid = self._encode(repo)
         url = f"{self._api}/projects/{pid}/pipelines/{pipeline_id}/jobs"
@@ -145,12 +144,12 @@ class GitLabProvider(CIProvider):
             resp = http.get(url, headers=self._headers())
             if resp.status_code != 200:
                 return ["(logs not available)"]
-        lines = [l for l in resp.text.splitlines()[-60:] if l.strip()]
+        lines = [line for line in resp.text.splitlines()[-60:] if line.strip()]
         return lines
 
     def _build_failure(
         self, repo: str, pipeline: dict, http_client: None
-    ) -> Optional[Failure]:
+    ) -> Failure | None:
         """Convert a GitLab pipeline dict to a Failure model."""
         job = self._get_failed_job(repo, pipeline["id"])
         if not job:
@@ -218,7 +217,7 @@ class GitLabProvider(CIProvider):
         self,
         repo: str,
         ref: str = "HEAD",
-        extensions: Optional[tuple[str, ...]] = None,
+        extensions: tuple[str, ...] | None = None,
     ) -> list[str]:
         """Return all file paths in the repo via GitLab's recursive tree API."""
         pid = self._encode(repo)

@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import logging
 from datetime import datetime
-from typing import Optional
 
 import httpx
 
@@ -139,7 +138,7 @@ class GitHubProvider(CIProvider):
                 lines.append(line)
         return lines
 
-    def _build_failure(self, repo: str, run: dict) -> Optional[Failure]:
+    def _build_failure(self, repo: str, run: dict) -> Failure | None:
         """Convert a GitHub Actions run dict to a Failure model."""
         triggered_at = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
         updated_at = datetime.fromisoformat(run["updated_at"].replace("Z", "+00:00"))
@@ -204,7 +203,7 @@ class GitHubProvider(CIProvider):
         self,
         repo: str,
         ref: str = "HEAD",
-        extensions: Optional[tuple[str, ...]] = None,
+        extensions: tuple[str, ...] | None = None,
     ) -> list[str]:
         """Return all file paths in the repo, optionally filtered by extension."""
         url = f"{GITHUB_API}/repos/{repo}/git/trees/{ref}"

@@ -11,7 +11,6 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 
 class StateStore:
@@ -40,7 +39,7 @@ class StateStore:
         self._data[key] = value
         self._flush()
 
-    def get(self, failure_id: str, namespace: str) -> Optional[dict]:
+    def get(self, failure_id: str, namespace: str) -> dict | None:
         """Retrieve a previously stored value, or None if not found."""
         return self._data.get(f"{failure_id}:{namespace}")
 

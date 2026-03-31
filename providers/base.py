@@ -15,7 +15,6 @@ git ops are delegated to an embedded GitHubProvider or GitLabProvider.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from shared.models import Failure
 
@@ -93,7 +92,7 @@ class CIProvider(ABC):
         self,
         repo: str,
         ref: str = "HEAD",
-        extensions: Optional[tuple[str, ...]] = None,
+        extensions: tuple[str, ...] | None = None,
     ) -> list[str]:
         """Return the list of file paths present in the repo at the given ref.
 

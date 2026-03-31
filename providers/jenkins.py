@@ -18,8 +18,7 @@ Configuration example in ops-pilot.yml:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import httpx
 
@@ -121,20 +120,20 @@ class JenkinsProvider(CIProvider):
                 resp = http.get(url, auth=self._auth)
                 if resp.status_code != 200:
                     return ["(logs not available)"]
-            return [l for l in resp.text.splitlines()[-60:] if l.strip()]
+            return [line for line in resp.text.splitlines()[-60:] if line.strip()]
         except Exception:
             return ["(logs not available)"]
 
-    def _build_failure(self, repo: str, build: dict) -> Optional[Failure]:
+    def _build_failure(self, repo: str, build: dict) -> Failure | None:
         """Convert a Jenkins build dict to a Failure model."""
         build_url = build.get("url", "")
         log_tail = self._get_console_log(build_url)
 
         # Timestamp is milliseconds since epoch
         ts_ms = build.get("timestamp", 0)
-        triggered_at = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+        triggered_at = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
         duration_ms = build.get("duration", 0)
-        failed_at = datetime.fromtimestamp((ts_ms + duration_ms) / 1000, tz=timezone.utc)
+        failed_at = datetime.fromtimestamp((ts_ms + duration_ms) / 1000, tz=UTC)
 
         # Extract commit info from changeSet if present
         change_items = build.get("changeSet", {}).get("items", [])
@@ -184,7 +183,7 @@ class JenkinsProvider(CIProvider):
         self,
         repo: str,
         ref: str = "HEAD",
-        extensions: Optional[tuple[str, ...]] = None,
+        extensions: tuple[str, ...] | None = None,
     ) -> list[str]:
         """Delegate to code host."""
         return self._code_host.get_repo_tree(repo, ref, extensions)

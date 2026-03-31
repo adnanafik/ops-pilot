@@ -13,11 +13,9 @@ Slack message format:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import datetime
-from typing import Optional
 
 import httpx
 
@@ -59,8 +57,8 @@ class NotifyAgent(BaseAgent[Alert]):
 
     def __init__(
         self,
-        slack_webhook_url: Optional[str] = None,
-        slack_bot_token: Optional[str] = None,
+        slack_webhook_url: str | None = None,
+        slack_bot_token: str | None = None,
         channel: str = "#platform-alerts",
         demo_mode: bool = True,
         **kwargs,

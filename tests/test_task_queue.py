@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from shared.task_queue import Task, TaskQueue, TaskState
@@ -122,7 +118,7 @@ class TestListTasks:
         assert len(tasks) == 2
 
     def test_list_filtered_by_state(self, tmp_queue):
-        id1 = tmp_queue.enqueue({"x": 1})
+        tmp_queue.enqueue({"x": 1})
         tmp_queue.enqueue({"x": 2})
         tmp_queue.claim_next()
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -46,21 +45,21 @@ class PipelineConfig(BaseModel):
     gitlab_token: str = Field(default="", description="Override global GITLAB_TOKEN")
 
     # GitLab-specific
-    gitlab_url: Optional[str] = Field(
+    gitlab_url: str | None = Field(
         default=None,
         description="GitLab base URL — omit for gitlab.com, set for self-hosted instances",
     )
 
     # Jenkins-specific
-    jenkins_url: Optional[str] = Field(
+    jenkins_url: str | None = Field(
         default=None,
         description="Jenkins server base URL, e.g. 'https://ci.example.com'",
     )
-    jenkins_job: Optional[str] = Field(
+    jenkins_job: str | None = Field(
         default=None,
         description="Jenkins job path, e.g. 'folder/my-job'. Defaults to repo value.",
     )
-    code_host: Optional[str] = Field(
+    code_host: str | None = Field(
         default=None,
         description="For Jenkins: code hosting provider for git/PR ops — github | gitlab",
     )
@@ -80,7 +79,7 @@ class PipelineConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def jenkins_requires_code_host(self) -> "PipelineConfig":
+    def jenkins_requires_code_host(self) -> PipelineConfig:
         if self.provider == "jenkins" and not self.code_host:
             raise ValueError("'code_host' is required when provider is 'jenkins' (github or gitlab)")
         if self.code_host and self.code_host not in _KNOWN_CODE_HOSTS:
@@ -209,7 +208,7 @@ def _substitute_env(value: object) -> object:
     return value
 
 
-def load_config(path: Optional[str] = None) -> OpsPilotConfig:
+def load_config(path: str | None = None) -> OpsPilotConfig:
     """Load and validate config from file + environment.
 
     Search order for config file:
@@ -252,7 +251,7 @@ def load_config(path: Optional[str] = None) -> OpsPilotConfig:
     return OpsPilotConfig(**raw)
 
 
-def _find_config_file(explicit: Optional[str]) -> Optional[Path]:
+def _find_config_file(explicit: str | None) -> Path | None:
     if explicit:
         return Path(explicit)
     env_path = os.environ.get("OPS_PILOT_CONFIG")

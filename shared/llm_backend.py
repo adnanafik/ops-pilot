@@ -136,7 +136,7 @@ class VertexBackend:
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 
-def make_backend(cfg: "OpsPilotConfig") -> LLMBackend:
+def make_backend(cfg: OpsPilotConfig) -> LLMBackend:
     """Return the appropriate ``LLMBackend`` based on ``cfg.llm_provider``.
 
     Args:

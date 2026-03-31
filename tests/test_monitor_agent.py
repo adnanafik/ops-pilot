@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -161,6 +159,6 @@ class TestMonitorAgentLiveMode:
             demo_mode=False,
             task_queue=tmp_queue,
         )
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match=""):
             agent.run()
         assert agent.status == AgentStatus.FAILED

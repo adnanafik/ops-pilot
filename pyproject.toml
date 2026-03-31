@@ -7,7 +7,7 @@ name = "ops-pilot"
 version = "0.1.0"
 description = "Agentic CI/CD incident responder — monitors pipelines, triages failures, generates fixes, notifies teams"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "anthropic>=0.25.0",
@@ -32,7 +32,7 @@ dev = [
 ops-pilot = "agents.monitor_agent:main"
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]

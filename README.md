@@ -207,20 +207,6 @@ Raw dicts break silently when a key is missing. Pydantic validates at constructi
 
 ---
 
-## Claude Code slash commands
-
-ops-pilot ships with 5 reusable skill files for [Claude Code](https://claude.ai/code) in `.claude/commands/`:
-
-| Command | What it does |
-|---------|-------------|
-| `/triage <log output>` | Structured triage report: root cause, severity, suggested fix |
-| `/add-pipeline owner/repo` | Add a pipeline to `ops-pilot.yml` with validation |
-| `/new-provider CircleCI` | Scaffold a full `CIProvider` implementation |
-| `/run [once\|dry-run\|watch]` | Run the watcher with env pre-checks |
-| `/scenario "Redis timeout"` | Generate a new demo scenario JSON |
-
----
-
 ## Running tests
 
 ```bash

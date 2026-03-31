@@ -14,7 +14,7 @@ from __future__ import annotations
 import abc
 import logging
 import os
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 from shared.llm_backend import AnthropicBackend, LLMBackend
 from shared.models import AgentStatus
@@ -44,8 +44,8 @@ class BaseAgent(abc.ABC, Generic[OutputT]):
 
     def __init__(
         self,
-        backend: Optional[LLMBackend] = None,
-        model: Optional[str] = None,
+        backend: LLMBackend | None = None,
+        model: str | None = None,
     ) -> None:
         """Initialize the agent with an injected or auto-created LLM backend.
 

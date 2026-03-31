@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import anthropic
 import pytest
 
 from shared.config import OpsPilotConfig

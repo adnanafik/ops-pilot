@@ -13,9 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime
-from typing import Optional
 
 from agents.base_agent import BaseAgent
 from providers.base import CIProvider
@@ -67,7 +65,7 @@ class FixAgent(BaseAgent[Fix]):
 
     def __init__(
         self,
-        provider: Optional[CIProvider] = None,
+        provider: CIProvider | None = None,
         demo_mode: bool = True,
         **kwargs,
     ) -> None:
@@ -276,7 +274,7 @@ Which file(s) need to be edited to fix this bug?"""
         try:
             text = raw.strip()
             if text.startswith("```"):
-                text = "\n".join(l for l in text.splitlines() if not l.startswith("```"))
+                text = "\n".join(line for line in text.splitlines() if not line.startswith("```"))
             data = json.loads(text)
             files = data.get("files", [])
             logger.info("FixAgent: inferred files to fix: %s", files)

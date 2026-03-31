@@ -3,9 +3,9 @@
 All callers have been updated to import from shared.llm_backend directly.
 """
 from shared.llm_backend import (  # noqa: F401
-    LLMBackend,
     AnthropicBackend,
     BedrockBackend,
+    LLMBackend,
     VertexBackend,
     make_backend,
 )

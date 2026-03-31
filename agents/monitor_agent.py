@@ -16,7 +16,6 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import httpx
 
@@ -50,9 +49,9 @@ class MonitorAgent(BaseAgent[list[Failure]]):
 
     def __init__(
         self,
-        repo: Optional[str] = None,
-        github_token: Optional[str] = None,
-        task_queue: Optional[TaskQueue] = None,
+        repo: str | None = None,
+        github_token: str | None = None,
+        task_queue: TaskQueue | None = None,
         demo_mode: bool = True,
         scenarios_dir: str = "demo/scenarios",
         **kwargs,
@@ -162,7 +161,7 @@ class MonitorAgent(BaseAgent[list[Failure]]):
         run: dict,
         headers: dict,
         _http: None,
-    ) -> Optional[Failure]:
+    ) -> Failure | None:
         """Convert a GitHub Actions run dict to a Failure model.
 
         Makes additional API calls to fetch job logs.

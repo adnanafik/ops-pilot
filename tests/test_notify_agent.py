@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agents.notify_agent import NotifyAgent, SEVERITY_EMOJI
+from agents.notify_agent import SEVERITY_EMOJI, NotifyAgent
 from shared.models import AgentStatus, Failure, Severity
 
 

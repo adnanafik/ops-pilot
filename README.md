@@ -158,6 +158,31 @@ model: anthropic.claude-sonnet-4-5-20251001-v1:0
 
 ---
 
+## Claude Code integration
+
+ops-pilot ships with 5 slash commands for [Claude Code](https://claude.ai/code) in `.claude/commands/`. Open this repo in Claude Code and use them directly — each one reads the actual source files before acting, so it follows the project's exact patterns.
+
+```bash
+# Diagnose a CI failure from log output or a description
+/triage "auth service null pointer on commit a3f21b7"
+
+# Add a new pipeline — detects provider, validates config, runs Python to confirm
+/add-pipeline myorg/my-service provider:github_actions
+
+# Scaffold a full CIProvider implementation (factory + __init__ wired automatically)
+/new-provider CircleCI
+
+# Run the watcher — checks .env, shows configured pipelines, then starts
+/run once --dry-run
+
+# Generate a new demo scenario JSON from a failure description
+/scenario "Redis connection timeout in payment service"
+```
+
+Every command is defined in `.claude/commands/<name>.md` — edit the `.md` file to change how Claude approaches the task.
+
+---
+
 ## Design decisions
 
 ### Why four separate agents instead of one big prompt?

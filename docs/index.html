@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ops-pilot — Agentic CI/CD Responder</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
+      --panel-inactive: #161b22;
+      --panel-active: #1c2128;
+      --panel-done: #0d1f0d;
+      --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .logo { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+    .tagline { color: var(--muted); font-size: 13px; }
+
+    .header-links { display: flex; gap: 16px; }
+    .header-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .header-links a:hover { border-color: var(--accent); color: var(--accent); }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 16px; }
+
+    .scenarios {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+
+    .scenario-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .scenario-btn:hover { border-color: var(--accent); background: #1c2128; }
+    .scenario-btn.active { border-color: var(--accent); background: #1a2535; color: var(--accent); }
+    .scenario-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #pipeline-info {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      min-height: 18px;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #1c2128;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      margin-right: 6px;
+      margin-bottom: 4px;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    @media (max-width: 700px) {
+      .pipeline { grid-template-columns: 1fr 1fr; }
+    }
+
+    .panel {
+      background: var(--panel-inactive);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      transition: background 0.3s, border-color 0.3s;
+      min-height: 160px;
+    }
+    .panel.running { border-color: var(--accent); background: var(--panel-active); box-shadow: 0 0 0 1px rgba(88,166,255,0.15); }
+    .panel.done { border-color: var(--green); background: var(--panel-done); }
+
+    .panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .panel-icon { font-size: 16px; }
+    .panel-name { font-weight: 700; font-size: 13px; color: var(--text); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      margin-left: auto;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .panel.running .status-dot { background: var(--accent); animation: pulse 1s infinite; }
+    .panel.done .status-dot { background: var(--green); animation: none; }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .panel-output {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      min-height: 60px;
+      word-break: break-word;
+    }
+    .panel.running .panel-output,
+    .panel.done .panel-output { color: var(--text); }
+
+    .cursor {
+      display: inline-block;
+      width: 6px; height: 12px;
+      background: var(--accent);
+      margin-left: 1px;
+      vertical-align: text-bottom;
+      animation: blink 0.7s step-end infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    .severity {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+    .severity-low { background: #1a2535; color: #8b949e; }
+    .severity-medium { background: #2d1f00; color: var(--yellow); }
+    .severity-high { background: #2d0d0d; color: var(--red); }
+    .severity-critical { background: #2d0d2d; color: var(--purple); }
+
+    #results { display: none; margin-top: 16px; }
+    #results.visible { display: block; }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 700px) { .results-grid { grid-template-columns: 1fr; } }
+
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .result-card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 12px; }
+
+    .pr-title { font-size: 14px; color: var(--accent); margin-bottom: 8px; }
+    .pr-link {
+      display: inline-block;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+    .pr-link:hover { background: rgba(88,166,255,0.1); }
+
+    .pr-body {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 8px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    .slack-msg {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      padding: 12px;
+      background: #1a1f26;
+      border-radius: 6px;
+      border-left: 3px solid #4a154b;
+    }
+
+    #reset-btn {
+      display: none;
+      margin-top: 24px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    #reset-btn:hover { border-color: var(--text); color: var(--text); }
+
+    .how-it-works {
+      margin-top: 48px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+    .how-it-works p { color: var(--muted); font-size: 13px; line-height: 1.8; margin-bottom: 12px; }
+    .how-it-works code { color: var(--accent); font-size: 12px; }
+
+    footer {
+      text-align: center;
+      padding: 32px;
+      color: var(--muted);
+      font-size: 11px;
+      border-top: 1px solid var(--border);
+      margin-top: 48px;
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">⚡ ops-pilot</div>
+    <div class="tagline">Agentic CI/CD Incident Responder</div>
+  </div>
+  <div class="header-links">
+    <a href="https://github.com/adnanafik/ops-pilot" target="_blank">⭐ GitHub</a>
+    <a href="https://github.com/adnanafik/ops-pilot#architecture" target="_blank">Architecture</a>
+  </div>
+</header>
+
+<main>
+  <h2>Select a scenario</h2>
+  <div class="scenarios" id="scenario-buttons"></div>
+
+  <div id="pipeline-info"></div>
+
+  <h2>Agent pipeline</h2>
+  <div class="pipeline">
+    <div class="panel" id="panel-monitor">
+      <div class="panel-header">
+        <span class="panel-icon">👁</span>
+        <span class="panel-name">Monitor</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-monitor">Waiting for CI failure…</div>
+    </div>
+
+    <div class="panel" id="panel-triage">
+      <div class="panel-header">
+        <span class="panel-icon">🔍</span>
+        <span class="panel-name">Triage</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-triage">Idle</div>
+      <div id="severity-badge"></div>
+    </div>
+
+    <div class="panel" id="panel-fix">
+      <div class="panel-header">
+        <span class="panel-icon">🔧</span>
+        <span class="panel-name">Fix</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-fix">Idle</div>
+    </div>
+
+    <div class="panel" id="panel-notify">
+      <div class="panel-header">
+        <span class="panel-icon">🔔</span>
+        <span class="panel-name">Notify</span>
+        <span class="status-dot"></span>
+      </div>
+      <div class="panel-output" id="out-notify">Idle</div>
+    </div>
+  </div>
+
+  <div id="results">
+    <h2>Results</h2>
+    <div class="results-grid">
+      <div class="result-card">
+        <h3>Draft Pull Request</h3>
+        <div id="pr-content">—</div>
+      </div>
+      <div class="result-card">
+        <h3>Slack Notification</h3>
+        <div id="slack-content">—</div>
+      </div>
+    </div>
+  </div>
+
+  <button id="reset-btn">↩ Run another scenario</button>
+
+  <div class="how-it-works">
+    <h2>How it works</h2>
+    <p>ops-pilot runs four agents in sequence: <code>Monitor → Triage → Fix → Notify</code>.</p>
+    <p><code>MonitorAgent</code> polls GitHub Actions for failed runs and builds a typed <code>Failure</code> model from the log tail.</p>
+    <p><code>TriageAgent</code> sends the logs to Claude and extracts root cause, severity, and fix confidence into a structured <code>Triage</code> model.</p>
+    <p><code>FixAgent</code> asks Claude which file to edit, fetches it from GitHub, generates a minimal patch, and opens a draft PR — humans review before anything merges.</p>
+    <p><code>NotifyAgent</code> writes a concise Slack message via Claude and posts it to the configured channel.</p>
+    <p>This demo replays pre-recorded runs — click any scenario above to see the full pipeline in action.</p>
+  </div>
+</main>
+
+<footer>
+  <a href="https://github.com/adnanafik/ops-pilot" target="_blank">github.com/adnanafik/ops-pilot</a>
+  &nbsp;·&nbsp; Built with Claude (Anthropic) &nbsp;·&nbsp; MIT License
+</footer>
+
+<script>
+  // Scenario definitions — fetched from static JSON files (no server needed)
+  const SCENARIOS = [
+    { id: 'null_pointer_auth',         label: '🔴 Null pointer crash — auth service' },
+    { id: 'missing_dependency_docker', label: '📦 Missing dependency — Docker build' },
+    { id: 'flaky_integration_test',    label: '🔁 Flaky integration test — payments' },
+  ];
+
+  const TYPEWRITER_SPEED = 18; // ms per character
+  const AGENT_PAUSE     = 600; // ms between agents
+
+  let running = false;
+  let aborted = false;
+
+  // ── Bootstrap ───────────────────────────────────────────────────────────────
+  function init() {
+    const container = document.getElementById('scenario-buttons');
+    SCENARIOS.forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = 'scenario-btn';
+      btn.textContent = s.label;
+      btn.dataset.id = s.id;
+      btn.addEventListener('click', () => startScenario(s.id, btn));
+      container.appendChild(btn);
+    });
+  }
+
+  // ── Run a scenario ──────────────────────────────────────────────────────────
+  async function startScenario(scenarioId, btn) {
+    if (running) return;
+    running = true;
+    aborted = false;
+
+    document.querySelectorAll('.scenario-btn').forEach(b => { b.classList.remove('active'); b.disabled = true; });
+    btn.classList.add('active');
+    resetPanels();
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('reset-btn').style.display = 'none';
+
+    let scenario;
+    try {
+      const resp = await fetch(`scenarios/${scenarioId}.json`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      scenario = await resp.json();
+    } catch (e) {
+      console.error('Failed to load scenario', e);
+      running = false;
+      return;
+    }
+
+    showPipelineInfo(scenario.pipeline);
+
+    for (const step of scenario.agents) {
+      if (aborted) break;
+      await runAgentStep(step);
+      await sleep(AGENT_PAUSE);
+    }
+
+    if (!aborted) {
+      document.getElementById('results').classList.add('visible');
+      document.getElementById('reset-btn').style.display = 'inline-block';
+    }
+    running = false;
+  }
+
+  // ── Animate one agent step ──────────────────────────────────────────────────
+  async function runAgentStep(step) {
+    const agent = step.agent;
+    setPanel(agent, 'running');
+    setOutput(agent, '');
+
+    await typewrite(agent, step.output);
+
+    setPanel(agent, 'done');
+
+    if (step.severity) showSeverityBadge(step.severity);
+    if (step.pr_title)      showPrResult(step);
+    if (step.slack_message) showSlackResult(step.slack_message);
+  }
+
+  // ── Typewriter effect ───────────────────────────────────────────────────────
+  function typewrite(agent, text) {
+    return new Promise(resolve => {
+      const el = document.getElementById(`out-${agent}`);
+      let i = 0;
+
+      // Add blinking cursor
+      const cursor = document.createElement('span');
+      cursor.className = 'cursor';
+      el.appendChild(cursor);
+
+      function tick() {
+        if (aborted || i >= text.length) {
+          cursor.remove();
+          el.textContent = text.slice(0, i);
+          resolve();
+          return;
+        }
+        // Batch a few chars per frame for speed
+        const chunk = text.slice(i, i + 3);
+        cursor.insertAdjacentText('beforebegin', chunk);
+        i += chunk.length;
+        setTimeout(tick, TYPEWRITER_SPEED);
+      }
+      tick();
+    });
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  // ── Panel helpers ───────────────────────────────────────────────────────────
+  function resetPanels() {
+    ['monitor','triage','fix','notify'].forEach(agent => {
+      document.getElementById(`panel-${agent}`).className = 'panel';
+      document.getElementById(`out-${agent}`).textContent = agent === 'monitor' ? 'Waiting for CI failure…' : 'Idle';
+    });
+    document.getElementById('severity-badge').innerHTML = '';
+    document.getElementById('pipeline-info').innerHTML = '';
+    document.getElementById('pr-content').innerHTML = '—';
+    document.getElementById('slack-content').innerHTML = '—';
+  }
+
+  function setPanel(agent, state) {
+    document.getElementById(`panel-${agent}`).className = `panel ${state}`;
+  }
+
+  function setOutput(agent, text) {
+    document.getElementById(`out-${agent}`).textContent = text;
+  }
+
+  function showSeverityBadge(severity) {
+    document.getElementById('severity-badge').innerHTML =
+      `<span class="severity severity-${severity.toLowerCase()}">${severity.toUpperCase()}</span>`;
+  }
+
+  function showPrResult(step) {
+    document.getElementById('pr-content').innerHTML = `
+      <div class="pr-title">${esc(step.pr_title)}</div>
+      <a class="pr-link" href="${esc(step.pr_url || '#')}" target="_blank">View PR #${esc(String(step.pr_number || '?'))} →</a>
+      <div class="pr-body">${esc(step.pr_body || '')}</div>
+    `;
+  }
+
+  function showSlackResult(msg) {
+    document.getElementById('slack-content').innerHTML =
+      `<div class="slack-msg">${esc(msg)}</div>`;
+  }
+
+  function showPipelineInfo(p) {
+    document.getElementById('pipeline-info').innerHTML = `
+      <span class="badge">${esc(p.repo)}</span>
+      <span class="badge">branch: ${esc(p.branch)}</span>
+      <span class="badge">commit: ${esc(p.commit)}</span>
+      <span class="badge">${esc(p.workflow)}</span>
+    `;
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Reset ───────────────────────────────────────────────────────────────────
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    aborted = true;
+    running = false;
+    resetPanels();
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('reset-btn').style.display = 'none';
+    document.querySelectorAll('.scenario-btn').forEach(b => { b.classList.remove('active'); b.disabled = false; });
+  });
+
+  init();
+</script>
+</body>
+</html>

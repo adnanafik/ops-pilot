@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from shared.agent_loop import Permission, Tool, ToolContext, ToolResult
+from shared.agent_loop import Permission, Tool, ToolContext, ToolResult  # noqa: F401
 from shared.tool_registry import ToolRegistry
-
 
 # ── Minimal test tools at each permission tier ────────────────────────────────
 

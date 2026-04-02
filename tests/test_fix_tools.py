@@ -8,7 +8,6 @@ stateless, so each test constructs a fresh instance.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -20,9 +19,8 @@ from agents.tools.fix_tools import (
     OpenDraftPRTool,
     UpdateFileTool,
 )
-from shared.agent_loop import Permission, ToolContext, ToolResult
+from shared.agent_loop import Permission, ToolContext
 from shared.models import DiffSummary, Failure, FailureDetail, PipelineInfo
-
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 

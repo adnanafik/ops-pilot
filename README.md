@@ -118,7 +118,8 @@ ops-pilot/
 │   ├── fix_agent.py         ← LLM patch generation + PR via CI provider
 │   ├── notify_agent.py      ← Slack / webhook / console notification
 │   └── tools/
-│       └── triage_tools.py  ← GetFileTool, GetMoreLogTool, GetCommitDiffTool
+│       ├── triage_tools.py  ← GetFileTool, GetMoreLogTool, GetCommitDiffTool (READ_ONLY)
+│       └── fix_tools.py     ← GetRepoTreeTool, CreateBranchTool, UpdateFileTool, OpenDraftPRTool (WRITE)
 ├── providers/
 │   ├── base.py              ← CIProvider ABC (7 methods: get_failures, open_draft_pr, …)
 │   ├── github.py            ← GitHub Actions implementation
@@ -127,7 +128,8 @@ ops-pilot/
 │   └── factory.py           ← make_provider(pipeline, cfg) — wires config to provider
 ├── shared/
 │   ├── models.py            ← Pydantic models: Failure → Triage → Fix → Alert
-│   ├── agent_loop.py        ← Generic AgentLoop[T]: tool-use loop + Tool ABC + ToolContext
+│   ├── agent_loop.py        ← Generic AgentLoop[T]: tool-use loop + Tool ABC + ToolContext + confirm hook
+│   ├── tool_registry.py     ← ToolRegistry: permission-tier watermark (READ_ONLY ≤ WRITE ≤ DANGEROUS)
 │   ├── config.py            ← YAML config + env-var substitution + validation
 │   ├── llm_backend.py       ← LLMBackend Protocol + Anthropic / Bedrock / Vertex backends
 │   ├── task_queue.py        ← File-locked task queue (atomic rename, no broker needed)
@@ -227,6 +229,12 @@ The original TriageAgent sent one prompt and hoped the answer was in the last 50
 
 `AgentLoop` lets the model request exactly what it needs — `get_file`, `get_more_log`, `get_commit_diff` — and stop when it has enough signal. If it hits the turn limit before concluding, it escalates with partial findings rather than opening a PR based on a guess. A wrong fix is more expensive than a missed fix: it creates a PR engineers have to triage, and it erodes trust in the system.
 
+### Why a tool registry instead of passing tool lists directly?
+
+`TriageAgent` used to hardcode `[GetFileTool(), GetMoreLogTool(), GetCommitDiffTool()]`. That worked, but the safety guarantee ("triage never gets write tools") lived only in the developer's head.
+
+`ToolRegistry.get_tools(max_permission=READ_ONLY)` makes the blast-radius ceiling structural — TriageAgent declares its ceiling at construction time and the registry enforces it. Adding a new write tool to the catalog doesn't automatically make it available to triage; the agent has to explicitly raise its ceiling. `REQUIRES_CONFIRMATION` tools are excluded from all watermark queries and additionally gated at execution time by a `confirm` hook — no hook wired means the tool is always denied (fail-safe, not fail-open).
+
 ### Why draft PRs, not auto-merge?
 
 ops-pilot is a force multiplier, not a replacement for engineering judgment. It opens the PR, writes the description, and notifies the team. A human reviews the diff and merges. This keeps the system useful without making it dangerous.
@@ -242,7 +250,7 @@ Raw dicts break silently when a key is missing. Pydantic validates at constructi
 No local Python install required — runs inside Docker:
 
 ```bash
-docker compose run --rm test                  # 115 tests
+docker compose run --rm test                  # 155 tests
 docker compose run --rm test pytest -k triage # single agent
 docker compose run --rm test ruff check agents/ shared/
 ```

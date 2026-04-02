@@ -164,3 +164,53 @@ class CIProvider(ABC):
         Returns:
             (html_url, pr_or_mr_number)
         """
+
+    # ── Agentic triage tools (Phase 1) ────────────────────────────────────────
+    # These methods are called by the triage tool implementations (GetMoreLogTool,
+    # GetCommitDiffTool) during the agent loop. They are not abstract — providers
+    # that haven't implemented them return a clear "not available" message rather
+    # than crashing, so the model can adapt gracefully.
+
+    def get_job_logs(
+        self,
+        repo: str,
+        run_id: str,
+        job_name: str,
+        offset: int = 0,
+        max_lines: int = 100,
+    ) -> list[str]:
+        """Fetch a specific section of job logs by offset.
+
+        Unlike get_failures() which always fetches the last N lines, this method
+        allows the agent to request earlier sections of the log — where the real
+        root cause often lives, 50-100 lines above the failure message.
+
+        Args:
+            repo:      Repository slug.
+            run_id:    CI run identifier (string).
+            job_name:  Name of the job whose logs to fetch.
+            offset:    Line offset from the start of the log (0 = beginning).
+            max_lines: Maximum lines to return.
+
+        Returns:
+            List of log lines for the requested section.
+            Returns a single-element list with an error message on failure.
+        """
+        return [f"get_job_logs not implemented for provider '{self.provider_name()}'"]
+
+    def get_commit_diff(self, repo: str, sha: str) -> str:
+        """Fetch the full unified diff for a specific commit.
+
+        Returns raw hunks (the actual changed lines), not the DiffSummary
+        abstraction. The model needs to see what *changed in the code*, not
+        just which files changed — DiffSummary.key_change is a human-written
+        summary that may not capture the specific line that caused the failure.
+
+        Args:
+            repo: Repository slug.
+            sha:  Commit SHA (7-char prefix is sufficient for most providers).
+
+        Returns:
+            Unified diff as a string. Returns an error message on failure.
+        """
+        return f"get_commit_diff not implemented for provider '{self.provider_name()}'"

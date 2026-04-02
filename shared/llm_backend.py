@@ -14,11 +14,16 @@ Three concrete implementations ship out of the box:
 
 Adding a new cloud provider (Azure, etc.) means writing one new class that
 satisfies the Protocol — no changes to BaseAgent or any agent are needed.
+
+Phase 1 adds ``complete_with_tools()`` to all backends alongside the existing
+``complete()``. Existing agents call ``complete()`` unchanged. ``AgentLoop``
+calls ``complete_with_tools()``. The two methods coexist — no existing code
+breaks.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import anthropic
 
@@ -28,15 +33,23 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class LLMBackend(Protocol):
-    """Minimal interface every LLM backend must satisfy.
+    """Interface every LLM backend must satisfy.
 
-    The single ``complete()`` method maps a single-turn conversation
-    (system prompt + user message) to a text response. Keeping the surface
-    area to one method means any cloud provider or mock can satisfy it.
+    ``complete()`` is the original single-turn interface used by all existing
+    agents. ``complete_with_tools()`` is the multi-turn interface used by
+    AgentLoop. Both are required — a backend that only implements one will not
+    satisfy this Protocol.
+
+    Note on @runtime_checkable: isinstance(x, LLMBackend) only checks that the
+    required methods exist on x, not their signatures. Mocks in tests must have
+    both methods present to pass the check.
     """
 
     def complete(self, system: str, user: str, model: str, max_tokens: int) -> str:
         """Send a single-turn prompt and return the response text.
+
+        Used by all existing agents (TriageAgent single-call path, FixAgent,
+        NotifyAgent). Keeps its original signature — no migration needed.
 
         Args:
             system:     System prompt describing the agent's role.
@@ -46,6 +59,34 @@ class LLMBackend(Protocol):
 
         Returns:
             The model's text response.
+        """
+        ...
+
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        system: str,
+        model: str,
+        max_tokens: int,
+    ) -> Any:
+        """Send a multi-turn conversation with tool definitions.
+
+        Used by AgentLoop. Returns the raw Anthropic SDK Message object —
+        AgentLoop.parse_response() converts it to typed TextBlock/ToolUseBlock.
+        All three backends wrap the Anthropic SDK (directly, via Bedrock, or
+        via Vertex), so the return type is the same across all of them.
+
+        Args:
+            messages:   Full conversation history as API-format dicts.
+            tools:      Tool definitions in Anthropic API format (from
+                        Tool.to_api_dict()).
+            system:     System prompt (includes loop footer from AgentLoop).
+            model:      Model identifier.
+            max_tokens: Maximum tokens to generate.
+
+        Returns:
+            anthropic.types.Message — raw SDK response. AgentLoop parses it.
         """
         ...
 
@@ -72,6 +113,23 @@ class AnthropicBackend:
             messages=[{"role": "user", "content": user}],
         )
         return response.content[0].text
+
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        system: str,
+        model: str,
+        max_tokens: int,
+    ) -> Any:
+        """Call the Anthropic Messages API with tool definitions."""
+        return self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            tools=tools,  # type: ignore[arg-type]
+        )
 
 
 class BedrockBackend:
@@ -104,6 +162,23 @@ class BedrockBackend:
         )
         return response.content[0].text
 
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        system: str,
+        model: str,
+        max_tokens: int,
+    ) -> Any:
+        """Call the Bedrock Messages API with tool definitions."""
+        return self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            tools=tools,  # type: ignore[arg-type]
+        )
+
 
 class VertexBackend:
     """Google Cloud Vertex AI backend.
@@ -131,6 +206,23 @@ class VertexBackend:
             messages=[{"role": "user", "content": user}],
         )
         return response.content[0].text
+
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        system: str,
+        model: str,
+        max_tokens: int,
+    ) -> Any:
+        """Call the Vertex AI Messages API with tool definitions."""
+        return self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            tools=tools,  # type: ignore[arg-type]
+        )
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────

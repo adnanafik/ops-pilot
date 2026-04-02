@@ -268,6 +268,77 @@ class GitHubProvider(CIProvider):
             )
             resp.raise_for_status()
 
+    # ── Agentic triage tools (Phase 1) ────────────────────────────────────────
+
+    def get_job_logs(
+        self,
+        repo: str,
+        run_id: str,
+        job_name: str,
+        offset: int = 0,
+        max_lines: int = 100,
+    ) -> list[str]:
+        """Fetch a specific section of logs by job name and line offset.
+
+        GitHub's log API always returns the full log for a job — there is no
+        server-side pagination. We download the full log and slice client-side.
+        This is fine for most CI jobs (logs are rarely > a few MB), and it lets
+        the agent request any section without multiple round trips.
+        """
+        # Find the job ID by name from the run's job list
+        jobs_url = f"{GITHUB_API}/repos/{repo}/actions/runs/{run_id}/jobs"
+        try:
+            with httpx.Client(timeout=20) as http:
+                resp = http.get(jobs_url, headers=self._headers())
+                resp.raise_for_status()
+                jobs = resp.json().get("jobs", [])
+        except Exception as exc:
+            return [f"Could not fetch jobs for run {run_id}: {exc}"]
+
+        job = next((j for j in jobs if j.get("name") == job_name), None)
+        if job is None:
+            available = [j.get("name") for j in jobs]
+            return [f"Job '{job_name}' not found. Available jobs: {available}"]
+
+        # Download full log for the job
+        log_url = f"{GITHUB_API}/repos/{repo}/actions/jobs/{job['id']}/logs"
+        try:
+            with httpx.Client(timeout=30, follow_redirects=True) as http:
+                resp = http.get(log_url, headers=self._headers())
+                if resp.status_code != 200:
+                    return [f"Logs not available (HTTP {resp.status_code})"]
+        except Exception as exc:
+            return [f"Could not fetch logs: {exc}"]
+
+        # Strip GitHub's ISO timestamp prefix and slice to requested section
+        all_lines: list[str] = []
+        for line in resp.text.splitlines():
+            if len(line) > 29 and line[10] == "T":
+                line = line[29:].strip()
+            if line:
+                all_lines.append(line)
+
+        return all_lines[offset: offset + max_lines]
+
+    def get_commit_diff(self, repo: str, sha: str) -> str:
+        """Fetch the full unified diff for a commit using GitHub's diff media type.
+
+        The Accept header 'application/vnd.github.diff' tells GitHub to return
+        the raw unified diff rather than a JSON response. This gives the model
+        the actual changed lines (+/-) rather than just file names and counts.
+        """
+        url = f"{GITHUB_API}/repos/{repo}/commits/{sha}"
+        headers = {**self._headers(), "Accept": "application/vnd.github.diff"}
+        try:
+            with httpx.Client(timeout=30) as http:
+                resp = http.get(url, headers=headers)
+                if resp.status_code == 404:
+                    return f"Commit {sha} not found in {repo}"
+                resp.raise_for_status()
+                return resp.text
+        except Exception as exc:
+            return f"Could not fetch diff for {sha}: {exc}"
+
     def open_draft_pr(
         self,
         repo: str,

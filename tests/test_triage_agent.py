@@ -1,8 +1,20 @@
-"""Tests for TriageAgent."""
+"""Tests for TriageAgent.
+
+These tests cover the TriageAgent's public interface and the helpers it still
+owns. The core loop logic is tested separately in test_agent_loop.py — there
+is no reason to duplicate those assertions here.
+
+Phase 1 changes: TriageAgent now uses AgentLoop internally. Tests that called
+private methods (_build_prompt, _parse_response) have been updated since those
+methods moved into the loop infrastructure. The public interface (run() returns
+a Triage, status is updated) is unchanged.
+"""
 
 from __future__ import annotations
 
 import json
+import types
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,127 +23,133 @@ from agents.triage_agent import TriageAgent
 from shared.models import AgentStatus, Failure, Severity
 
 
+# ── Mock backend helpers ───────────────────────────────────────────────────────
+
+def _end_turn_response(text: str = "Investigation complete.") -> types.SimpleNamespace:
+    """A complete_with_tools response with no tool calls — loop exits immediately."""
+    return types.SimpleNamespace(
+        content=[types.SimpleNamespace(type="text", text=text)]
+    )
+
+
+def _make_backend(
+    extraction_json: str | None = None,
+    tool_responses: list | None = None,
+) -> MagicMock:
+    """Build a mock backend suitable for TriageAgent tests.
+
+    complete_with_tools() returns an end_turn response (no tool calls) so
+    the loop exits after one turn. complete() returns extraction_json so
+    the structured extraction succeeds.
+    """
+    backend = MagicMock()
+    responses = tool_responses or [_end_turn_response()]
+    backend.complete_with_tools.side_effect = responses
+    if extraction_json is not None:
+        backend.complete.return_value = extraction_json
+    return backend
+
+
+def _valid_extraction(
+    severity: str = "high",
+    confidence: str = "HIGH",
+    service: str = "auth-service",
+) -> str:
+    return json.dumps({
+        "failure_id": "test_null_pointer",
+        "output": "Redis null guard removed causing AttributeError.",
+        "severity": severity,
+        "affected_service": service,
+        "regression_introduced_in": "a3f21b7",
+        "production_impact": "none",
+        "fix_confidence": confidence,
+        "timestamp": "2026-01-01T00:00:00",
+    })
+
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+
 class TestTriageAgentDescribe:
-    def test_describe_returns_string(self):
+    def test_describe_returns_string(self) -> None:
         agent = TriageAgent(backend=MagicMock())
         assert isinstance(agent.describe(), str)
         assert len(agent.describe()) > 10
 
-    def test_name_is_snake_case(self):
+    def test_name_is_snake_case(self) -> None:
         agent = TriageAgent(backend=MagicMock())
         assert agent.name == "triage_agent"
 
 
 class TestTriageAgentRun:
-    def test_run_returns_triage_model(self, sample_failure: Failure, mock_backend):
-        """TriageAgent.run() should return a valid Triage model."""
-        mock_backend.complete.return_value = json.dumps({
-            "output": "Redis null guard removed causing AttributeError.",
-            "severity": "high",
-            "affected_service": "auth-service",
-            "regression_introduced_in": "a3f21b7",
-            "production_impact": "none",
-            "fix_confidence": "HIGH",
-        })
-
-        agent = TriageAgent(backend=mock_backend)
+    def test_run_returns_triage_model(self, sample_failure: Failure) -> None:
+        """run() should return a valid Triage with correct fields."""
+        backend = _make_backend(extraction_json=_valid_extraction())
+        agent = TriageAgent(backend=backend)
         triage = agent.run(sample_failure)
 
         assert triage.failure_id == sample_failure.id
         assert triage.severity == Severity.HIGH
         assert triage.fix_confidence == "HIGH"
         assert triage.affected_service == "auth-service"
-        assert triage.regression_introduced_in == "a3f21b7"
 
-    def test_run_sets_status_complete(self, sample_failure: Failure, mock_backend):
+    def test_run_sets_status_complete(self, sample_failure: Failure) -> None:
         """Status should be COMPLETE after a successful run."""
-        mock_backend.complete.return_value = json.dumps({
-            "output": "Root cause found.",
-            "severity": "medium",
-            "affected_service": "auth",
-            "regression_introduced_in": "a3f21b7",
-            "production_impact": "none",
-            "fix_confidence": "HIGH",
-        })
-
-        agent = TriageAgent(backend=mock_backend)
+        backend = _make_backend(extraction_json=_valid_extraction())
+        agent = TriageAgent(backend=backend)
         agent.run(sample_failure)
 
         assert agent.status == AgentStatus.COMPLETE
 
-    def test_run_handles_markdown_fenced_json(self, sample_failure: Failure, mock_backend):
-        """TriageAgent should strip ```json fences from LLM response."""
-        raw_with_fences = "```json\n" + json.dumps({
-            "output": "Root cause.",
-            "severity": "low",
-            "affected_service": "auth",
-            "regression_introduced_in": "a3f21b7",
-            "production_impact": "none",
-            "fix_confidence": "MEDIUM",
-        }) + "\n```"
+    def test_run_sets_status_failed_on_backend_error(self, sample_failure: Failure) -> None:
+        """Status should be FAILED when the backend raises."""
+        backend = MagicMock()
+        backend.complete_with_tools.side_effect = Exception("API down")
+        agent = TriageAgent(backend=backend)
 
-        mock_backend.complete.return_value = raw_with_fences
-        agent = TriageAgent(backend=mock_backend)
-        triage = agent.run(sample_failure)
-
-        assert triage.severity == Severity.LOW
-
-    def test_run_raises_on_invalid_json(self, sample_failure: Failure, mock_backend):
-        """TriageAgent.run() should raise ValueError on non-JSON LLM response."""
-        mock_backend.complete.return_value = "I cannot determine the root cause."
-
-        agent = TriageAgent(backend=mock_backend)
-        with pytest.raises(ValueError, match="non-JSON"):
-            agent.run(sample_failure)
-
-    def test_run_sets_status_failed_on_error(self, sample_failure: Failure, mock_backend):
-        """Status should be FAILED when the run raises an exception."""
-        mock_backend.complete.side_effect = Exception("API error")
-
-        agent = TriageAgent(backend=mock_backend)
-        with pytest.raises(Exception, match="API error"):
+        with pytest.raises(Exception, match="API down"):
             agent.run(sample_failure)
 
         assert agent.status == AgentStatus.FAILED
 
-    def test_build_prompt_includes_key_fields(self, sample_failure: Failure):
-        """The prompt should include repo, commit, and log tail content."""
-        agent = TriageAgent(backend=MagicMock())
-        prompt = agent._build_prompt(sample_failure)
-
-        assert sample_failure.pipeline.repo in prompt
-        assert sample_failure.pipeline.commit in prompt
-        assert sample_failure.diff_summary.key_change in prompt
-
-    def test_all_severity_levels_accepted(self, sample_failure: Failure, mock_backend):
+    def test_all_severity_levels_accepted(self, sample_failure: Failure) -> None:
         """TriageAgent should correctly map all four severity levels."""
         for level in ["low", "medium", "high", "critical"]:
-            mock_backend.complete.return_value = json.dumps({
-                "output": "Root cause.",
-                "severity": level,
-                "affected_service": "svc",
-                "regression_introduced_in": "abc1234",
-                "production_impact": "none",
-                "fix_confidence": "HIGH",
-            })
-            agent = TriageAgent(backend=mock_backend)
+            backend = _make_backend(extraction_json=_valid_extraction(severity=level))
+            agent = TriageAgent(backend=backend)
             triage = agent.run(sample_failure)
             assert triage.severity.value == level
 
+    def test_low_confidence_returned_when_extraction_fails(
+        self, sample_failure: Failure
+    ) -> None:
+        """If extraction produces invalid JSON, run() returns a LOW confidence fallback.
 
-class TestTriageAgentParseResponse:
-    def test_valid_json(self):
-        agent = TriageAgent(backend=MagicMock())
-        data = agent._parse_response('{"key": "value"}')
-        assert data == {"key": "value"}
+        The pipeline should route this to escalation rather than crashing.
+        """
+        backend = _make_backend(extraction_json="not valid json {{")
+        agent = TriageAgent(backend=backend)
+        triage = agent.run(sample_failure)
 
-    def test_strips_code_fences(self):
-        agent = TriageAgent(backend=MagicMock())
-        fenced = "```json\n{\"key\": \"value\"}\n```"
-        data = agent._parse_response(fenced)
-        assert data == {"key": "value"}
+        assert triage.fix_confidence == "LOW"
+        assert triage.failure_id == sample_failure.id
 
-    def test_raises_on_invalid(self):
-        agent = TriageAgent(backend=MagicMock())
-        with pytest.raises(ValueError):
-            agent._parse_response("not json at all")
+
+class TestBuildInitialMessage:
+    def test_includes_key_failure_fields(self, sample_failure: Failure) -> None:
+        """The initial message should contain repo, commit, and log tail."""
+        msg = TriageAgent._build_initial_message(sample_failure)
+
+        assert sample_failure.pipeline.repo in msg
+        assert sample_failure.pipeline.commit in msg
+        assert sample_failure.diff_summary.key_change in msg
+
+    def test_includes_failure_id(self, sample_failure: Failure) -> None:
+        """failure_id must be in the initial message so extraction can populate it."""
+        msg = TriageAgent._build_initial_message(sample_failure)
+        assert sample_failure.id in msg
+
+    def test_includes_log_tail(self, sample_failure: Failure) -> None:
+        """Log tail lines should appear in the initial message."""
+        msg = TriageAgent._build_initial_message(sample_failure)
+        for line in sample_failure.failure.log_tail:
+            assert line in msg

@@ -30,9 +30,11 @@ from shared.config import OpsPilotConfig, PipelineConfig, load_config
 from shared.llm_backend import LLMBackend, make_backend
 from shared.models import Failure, Severity
 from shared.state_store import StateStore
-from agents.triage_agent import TriageAgent
+from agents.coordinator_agent import CoordinatorAgent
 from agents.fix_agent import FixAgent
+from agents.investigation_router import InvestigationRouter
 from agents.notify_agent import NotifyAgent
+from agents.triage_agent import TriageAgent
 
 logger = logging.getLogger("ops-pilot")
 
@@ -80,11 +82,26 @@ def run_pipeline(
     print(f"  Branch:   {failure.pipeline.branch}")
     print(f"  Message:  {failure.pipeline.commit_message}")
 
-    # Triage
+    # Triage — router decides fast path (TriageAgent) or deep path (CoordinatorAgent)
     hdr("TRIAGE", YELLOW)
-    step("triage", "Analysing with Claude…")
+    router = InvestigationRouter()
+    route = router.route(failure)
+    step("triage", f"Route: {route}  —  Analysing with Claude…")
     t0 = time.time()
-    triage = TriageAgent(backend=backend, model=cfg.model).run(failure)
+
+    try:
+        provider_for_triage = make_provider(pipeline, cfg)
+    except Exception:
+        provider_for_triage = None
+
+    if route == "deep":
+        triage = CoordinatorAgent(
+            backend=backend, model=cfg.model, provider=provider_for_triage
+        ).run(failure)
+    else:
+        triage = TriageAgent(
+            backend=backend, model=cfg.model, provider=provider_for_triage
+        ).run(failure)
 
     sev_color = SEVERITY_COLOR.get(triage.severity, "")
     step("triage", f"Severity: {sev_color}{BOLD}{triage.severity.value.upper()}{RESET}  "

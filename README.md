@@ -112,14 +112,17 @@ flowchart LR
 ```
 ops-pilot/
 ├── agents/
-│   ├── base_agent.py        ← Abstract base: run(), describe(), injected LLM backend
-│   ├── monitor_agent.py     ← Polls CI provider; returns Failure models
-│   ├── triage_agent.py      ← Agentic triage loop; returns Triage model
-│   ├── fix_agent.py         ← LLM patch generation + PR via CI provider
-│   ├── notify_agent.py      ← Slack / webhook / console notification
+│   ├── base_agent.py           ← Abstract base: run(), describe(), injected LLM backend
+│   ├── monitor_agent.py        ← Polls CI provider; returns Failure models
+│   ├── triage_agent.py         ← Fast path: single agentic loop; returns Triage
+│   ├── coordinator_agent.py    ← Deep path: spawns parallel workers; returns Triage
+│   ├── investigation_router.py ← Routes failures to fast or deep path (heuristic)
+│   ├── fix_agent.py            ← LLM patch generation + PR via CI provider
+│   ├── notify_agent.py         ← Slack / webhook / console notification
 │   └── tools/
-│       ├── triage_tools.py  ← GetFileTool, GetMoreLogTool, GetCommitDiffTool (READ_ONLY)
-│       └── fix_tools.py     ← GetRepoTreeTool, CreateBranchTool, UpdateFileTool, OpenDraftPRTool (WRITE)
+│       ├── triage_tools.py     ← GetFileTool, GetMoreLogTool, GetCommitDiffTool (READ_ONLY)
+│       ├── fix_tools.py        ← GetRepoTreeTool, CreateBranchTool, UpdateFileTool, OpenDraftPRTool (WRITE)
+│       └── coordinator_tools.py ← SpawnWorkerTool + LogWorker / SourceWorker / DiffWorker
 ├── providers/
 │   ├── base.py              ← CIProvider ABC (7 methods: get_failures, open_draft_pr, …)
 │   ├── github.py            ← GitHub Actions implementation
@@ -229,6 +232,18 @@ The original TriageAgent sent one prompt and hoped the answer was in the last 50
 
 `AgentLoop` lets the model request exactly what it needs — `get_file`, `get_more_log`, `get_commit_diff` — and stop when it has enough signal. If it hits the turn limit before concluding, it escalates with partial findings rather than opening a PR based on a guess. A wrong fix is more expensive than a missed fix: it creates a PR engineers have to triage, and it erodes trust in the system.
 
+### Why a router instead of one agent that decides its own strategy?
+
+The routing decision (fast vs. deep) is now a visible, logged record: "this failure was routed to deep investigation because 4 files changed." If it's hidden inside an agent's system prompt, engineers can't inspect or tune it without reading LLM outputs.
+
+`InvestigationRouter` routes heuristically (file count, diff size, log length) in Phase 3. In Phase 4, it can be upgraded to LLM-based classification backed by incident memory — the interface (`route() → 'fast' | 'deep'`) stays the same.
+
+### Why are coordinator workers isolated from each other?
+
+Each worker (`log_worker`, `source_worker`, `diff_worker`) runs in its own `AgentLoop` with its own message history and a scoped tool list. `log_worker` cannot read source files; `diff_worker` cannot fetch logs. Two benefits: (1) workers stay focused and don't spend their context budget on tangents; (2) the coordinator sees only clean summaries, not raw tool output from 9 concurrent tool calls.
+
+Workers cannot spawn further workers — no `SpawnWorkerTool` in their tool list. This prevents unbounded recursion and keeps the depth predictable.
+
 ### Why a tool registry instead of passing tool lists directly?
 
 `TriageAgent` used to hardcode `[GetFileTool(), GetMoreLogTool(), GetCommitDiffTool()]`. That worked, but the safety guarantee ("triage never gets write tools") lived only in the developer's head.
@@ -250,7 +265,7 @@ Raw dicts break silently when a key is missing. Pydantic validates at constructi
 No local Python install required — runs inside Docker:
 
 ```bash
-docker compose run --rm test                  # 155 tests
+docker compose run --rm test                  # 186 tests
 docker compose run --rm test pytest -k triage # single agent
 docker compose run --rm test ruff check agents/ shared/
 ```

@@ -20,6 +20,30 @@ _KNOWN_PROVIDERS = {"github_actions", "gitlab_ci", "jenkins"}
 _KNOWN_CODE_HOSTS = {"github", "gitlab"}
 
 
+class PermissionsConfig(BaseModel):
+    """Per-deployment tool allowlist. Empty list = all tools permitted."""
+
+    allowed_tools: list[str] = Field(
+        default_factory=list,
+        description="Explicit tool allowlist. Omit or leave empty to allow all tools.",
+    )
+
+
+class RateLimitsConfig(BaseModel):
+    """Per-deployment rate limits. Zero = unlimited."""
+
+    max_api_calls_per_hour: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum LLM API calls per rolling hour. 0 = unlimited.",
+    )
+    max_tokens_per_hour: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum tokens consumed per rolling hour. 0 = unlimited.",
+    )
+
+
 class PipelineConfig(BaseModel):
     """Configuration for a single monitored repository."""
 
@@ -106,6 +130,24 @@ class OpsPilotConfig(BaseModel):
     # 'anthropic.claude-sonnet-4-5-20251001-v1:0' or a cross-region
     # inference ID like 'us.anthropic.claude-sonnet-4-5-20251001-v1:0'
     model: str = Field(default="claude-sonnet-4-6")
+
+    # Tenant identity
+    tenant_id: str = Field(
+        default="default",
+        description="Identifier for this deployment — stamped on all records and logs.",
+    )
+
+    # Tool permissions
+    permissions: PermissionsConfig = Field(
+        default_factory=PermissionsConfig,
+        description="Per-deployment tool allowlist configuration.",
+    )
+
+    # Rate limits
+    rate_limits: RateLimitsConfig = Field(
+        default_factory=RateLimitsConfig,
+        description="Per-deployment rate limiting configuration.",
+    )
 
     # AWS Bedrock
     aws_region: str = Field(

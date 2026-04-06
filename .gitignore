@@ -16,3 +16,6 @@ htmlcov/
 dist/
 *.egg-info/
 venv311/
+
+# Git worktrees
+.worktrees/

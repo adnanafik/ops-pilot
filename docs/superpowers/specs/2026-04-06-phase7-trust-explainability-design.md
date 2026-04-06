@@ -171,7 +171,8 @@ On backend failure: returns a minimal `EscalationSummary` with `what_was_investi
 | Location | Change |
 |---|---|
 | `AgentLoop.__init__` | Add `trust_context: TrustContext \| None = None` and `actor: str = "agent"` parameters |
-| `AgentLoop.run_one()` — before `REQUIRES_CONFIRMATION` execution | Call `trust_context.explanation_generator.generate(tool_name, tool_input, last_text)` |
+| `AgentLoop._execute_tools_concurrent()` | Add `last_text: str` parameter so the explanation generator can use the current investigation summary as context |
+| `AgentLoop.run_one()` — `REQUIRES_CONFIRMATION` gate | If `trust_context` is set: generate explanation and auto-proceed (Phase 7 — observability without blocking). If `trust_context` is absent: fall through to existing `confirm` hook gate (Phase 8 will wire real approval there) |
 | `AgentLoop.run_one()` — after any tool execution | Call `trust_context.audit_log.record(...)` with all fields; `explanation` is `None` for non-confirmation tools |
 | `UpdateFileTool.permission` | Change return value from `Permission.WRITE` to `Permission.REQUIRES_CONFIRMATION` |
 | `OpenDraftPRTool.permission` | Change return value from `Permission.WRITE` to `Permission.REQUIRES_CONFIRMATION` |
@@ -225,4 +226,4 @@ Both the `audit/` directory and its files are gitignored. The directory is creat
 
 ## Future Upgrade Path
 
-Phase 8 (human-in-the-loop approval): replace the auto-proceed behaviour after explanation generation with a real approval gate. The seam is already in place — `AgentLoop`'s `confirm` hook is wired but always returns `True` implicitly in Phase 7 (execution proceeds after explanation). Phase 8 wires a real async approval callback there. Zero changes to `AuditLog`, `ExplanationGenerator`, or any tool definitions.
+Phase 8 (human-in-the-loop approval): replace the auto-proceed behaviour in the `trust_context` branch with a real approval gate. The seam is already in place — when `trust_context` is set and a `confirm` hook is also provided, Phase 8 can check the hook result after explanation generation instead of auto-proceeding. Zero changes to `AuditLog`, `ExplanationGenerator`, or any tool definitions. The `confirm` hook signature is unchanged.

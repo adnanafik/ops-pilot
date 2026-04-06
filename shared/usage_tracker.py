@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -73,7 +73,7 @@ class UsageTracker:
     # ── Internal helpers ───────────────────────────────────────────────────────
 
     def _today_path(self) -> Path:
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
         return self._base / f"{date_str}.json"
 
     def _load_today(self) -> DailyUsage:

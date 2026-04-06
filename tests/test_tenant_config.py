@@ -1,5 +1,5 @@
 # tests/test_tenant_config.py
-from shared.config import OpsPilotConfig, PermissionsConfig, RateLimitsConfig
+from shared.config import OpsPilotConfig
 
 
 def test_default_tenant_id():

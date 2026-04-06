@@ -2,10 +2,10 @@
 from pathlib import Path
 
 from shared.config import OpsPilotConfig
+from shared.rate_limiter import RateLimiter
 from shared.tenant_context import TenantContext, make_tenant_context
 from shared.tool_permissions import ToolPermissions
 from shared.usage_tracker import UsageTracker
-from shared.rate_limiter import RateLimiter
 
 
 def test_make_tenant_context_wires_tenant_id(tmp_path: Path):

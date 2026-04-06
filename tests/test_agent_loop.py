@@ -34,7 +34,12 @@ from shared.agent_loop import (
     ToolContext,
     ToolResult,
 )
+from shared.exceptions import RateLimitExceeded
 from shared.models import DiffSummary, Failure, FailureDetail, PipelineInfo
+from shared.rate_limiter import RateLimiter
+from shared.tenant_context import TenantContext
+from shared.tool_permissions import ToolPermissions
+from shared.usage_tracker import UsageTracker
 
 # ── Minimal Pydantic model used as response_model in tests ────────────────────
 # Using a simple two-field model keeps tests focused on loop behaviour,
@@ -768,13 +773,6 @@ class TestConfirmHook:
 
 
 # ── Tests: TenantContext integration ──────────────────────────────────────────
-
-from unittest.mock import patch
-from shared.tenant_context import TenantContext
-from shared.tool_permissions import ToolPermissions
-from shared.usage_tracker import UsageTracker
-from shared.rate_limiter import RateLimiter
-from shared.exceptions import RateLimitExceeded
 
 
 def _make_tenant_context(

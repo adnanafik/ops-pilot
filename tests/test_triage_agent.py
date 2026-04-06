@@ -20,6 +20,10 @@ import pytest
 
 from agents.triage_agent import TriageAgent
 from shared.models import AgentStatus, Failure, Severity
+from shared.rate_limiter import RateLimiter
+from shared.tenant_context import TenantContext
+from shared.tool_permissions import ToolPermissions
+from shared.usage_tracker import UsageTracker
 
 # ── Mock backend helpers ───────────────────────────────────────────────────────
 
@@ -154,12 +158,6 @@ class TestBuildInitialMessage:
 
 
 # ── Tests: TenantContext threading ────────────────────────────────────────────
-
-from unittest.mock import MagicMock
-from shared.tenant_context import TenantContext
-from shared.tool_permissions import ToolPermissions
-from shared.usage_tracker import UsageTracker
-from shared.rate_limiter import RateLimiter
 
 
 def _make_tenant_ctx() -> TenantContext:

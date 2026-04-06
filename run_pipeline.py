@@ -30,8 +30,11 @@ from shared.models import DiffSummary, Failure, FailureDetail, PipelineInfo
 from agents.triage_agent import TriageAgent
 from agents.fix_agent import FixAgent
 from agents.notify_agent import NotifyAgent
+from shared.config import load_config
+from shared.memory_store import MemoryStore, make_memory_record
 from shared.task_queue import TaskQueue
 from shared.state_store import StateStore
+from shared.tenant_context import make_tenant_context
 
 
 SCENARIOS_DIR = Path(__file__).parent / "demo" / "scenarios"
@@ -98,6 +101,9 @@ def run_pipeline(scenario_id: str, dry_run: bool = False) -> int:
         return 1
 
     failure = load_scenario(scenario_id)
+    config = load_config()
+    tenant_ctx = make_tenant_context(config)
+    memory_store = MemoryStore()
     store = StateStore(path=f"ops_pilot_state_{scenario_id}.json")
     queue = TaskQueue()
 
@@ -121,7 +127,7 @@ def run_pipeline(scenario_id: str, dry_run: bool = False) -> int:
 
     t0 = time.time()
     model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
-    triage_agent = TriageAgent(model=model)
+    triage_agent = TriageAgent(model=model, tenant_context=tenant_ctx)
     triage = triage_agent.run(failure)
     elapsed = time.time() - t0
 
@@ -151,6 +157,12 @@ def run_pipeline(scenario_id: str, dry_run: bool = False) -> int:
     print(f"\n  {DIM}{fix.pr_body[:400]}{'…' if len(fix.pr_body) > 400 else ''}{RESET}\n")
 
     store.set(failure.id, "fix", fix.model_dump(mode="json"))
+
+    # Record completed investigation to memory and usage tracker
+    tenant_ctx.usage_tracker.record_incident()
+    memory_record = make_memory_record(failure, triage, tenant_id=tenant_ctx.tenant_id)
+    memory_store.append(memory_record)
+    step("memory", f"Incident saved to memory  id={failure.id[:8]}…  {GREEN}✓{RESET}")
 
     # ── 4. Notify ─────────────────────────────────────────────────────────────
     banner("4 / 4  NOTIFY", YELLOW)

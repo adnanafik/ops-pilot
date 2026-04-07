@@ -20,6 +20,7 @@ from datetime import datetime
 import httpx
 
 from agents.base_agent import BaseAgent
+from shared.escalation import EscalationSummary
 from shared.models import AgentStatus, Alert, Failure, Fix, Severity, Triage
 
 logger = logging.getLogger(__name__)
@@ -80,22 +81,44 @@ class NotifyAgent(BaseAgent[Alert]):
         """Return a one-line description of this agent's responsibility."""
         return "Sends Slack alerts with triage summary and PR link when a fix is ready"
 
-    def run(self, failure: Failure, triage: Triage, fix: Fix) -> Alert:
+    def run(
+        self,
+        failure: Failure,
+        triage: Triage,
+        fix: Fix | None,
+        escalation: EscalationSummary | None = None,
+    ) -> Alert:
         """Generate and send a Slack notification.
 
+        Exactly one of *fix* or *escalation* must be provided.  If *fix* is
+        supplied the normal fix-ready message is sent.  If *escalation* is
+        supplied (and *fix* is None) the agent was unable to produce a fix and
+        an escalation alert is sent instead.
+
         Args:
-            failure: Original CI failure.
-            triage:  Triage results from TriageAgent.
-            fix:     Fix details from FixAgent.
+            failure:    Original CI failure.
+            triage:     Triage results from TriageAgent.
+            fix:        Fix details from FixAgent, or None when escalating.
+            escalation: Escalation summary when fix_confidence is LOW, or None.
+
+        Raises:
+            ValueError: If both *fix* and *escalation* are None.
 
         Returns:
             Alert model with the message that was sent.
         """
+        if fix is None and escalation is None:
+            raise ValueError("NotifyAgent.run requires either fix or escalation — both are None.")
+
         self._status = AgentStatus.RUNNING
         logger.info("NotifyAgent: preparing alert for %s", failure.id)
 
         try:
-            slack_message = self._generate_message(failure, triage, fix)
+            if fix is not None:
+                slack_message = self._generate_message(failure, triage, fix)
+            else:
+                assert escalation is not None  # narrowing — already checked above
+                slack_message = self._generate_escalation_message(failure, triage, escalation)
 
             if self.demo_mode or (not self.slack_bot_token and not self.slack_webhook_url):
                 self._console_output(slack_message)
@@ -148,6 +171,37 @@ PR number: {fix.pr_number}
 
 Use this severity emoji: {emoji}
 Channel context: {self.channel}"""
+
+        return self._call_llm(
+            system=SYSTEM_PROMPT,
+            user=user_message,
+            max_tokens=300,
+        ).strip()
+
+    def _generate_escalation_message(
+        self,
+        failure: Failure,
+        triage: Triage,
+        escalation: EscalationSummary,
+    ) -> str:
+        """Generate a Slack message for a LOW-confidence escalation (no fix produced)."""
+        emoji = SEVERITY_EMOJI.get(triage.severity, ":white_circle:")
+        user_message = f"""Generate a Slack notification for a CI incident that could NOT be fixed automatically.
+
+Repository: {failure.pipeline.repo}
+Branch: {failure.pipeline.branch}
+Commit: {failure.pipeline.commit}
+Job: {failure.failure.job}
+
+What was investigated: {escalation.what_was_investigated}
+What was inconclusive: {escalation.what_was_inconclusive}
+Recommended next step: {escalation.recommended_next_step}
+Severity: {triage.severity.value.upper()}
+
+Use this severity emoji: {emoji}
+Channel context: {self.channel}
+
+Make clear that human review is required — the agent was unable to produce a fix with sufficient confidence."""
 
         return self._call_llm(
             system=SYSTEM_PROMPT,

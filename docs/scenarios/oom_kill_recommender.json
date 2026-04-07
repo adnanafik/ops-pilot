@@ -1,0 +1,100 @@
+{
+  "id": "oom_kill_recommender",
+  "label": "⚠️ OOM kill — recommender (escalation)",
+  "pipeline": {
+    "provider": "github_actions",
+    "repo": "acme-corp/recommender",
+    "workflow": "load-test.yml",
+    "run_id": "8857334012",
+    "branch": "main",
+    "commit": "c2e8f91",
+    "commit_message": "perf: add LRU cache for user embeddings, increase batch size 256→1024",
+    "author": "ml-eng@acme-corp.com",
+    "triggered_at": "2026-03-31T22:10:05Z",
+    "failed_at": "2026-03-31T22:14:22Z",
+    "duration_seconds": 257
+  },
+  "failure": {
+    "job": "load-test",
+    "step": "Run recommendation load test",
+    "exit_code": 137,
+    "log_tail": [
+      "Running load test: 500 concurrent users, 60s duration",
+      "RSS at t=0s:   1.2 GB",
+      "RSS at t=30s:  2.1 GB  (cache warming up)",
+      "RSS at t=60s:  2.9 GB",
+      "RSS at t=90s:  3.6 GB",
+      "RSS at t=120s: 4.1 GB",
+      "Killed",
+      "",
+      "Process killed by OOM killer (exit code 137)",
+      "Container memory limit: 4096 MB",
+      "Peak RSS observed before kill: 4.1 GB",
+      "",
+      "k6 summary: 12847 requests completed before OOM",
+      "p50=42ms p95=318ms p99=891ms error_rate=0.02%"
+    ]
+  },
+  "diff_summary": {
+    "files_changed": ["recommender/embedding_cache.py", "recommender/batch_processor.py", "recommender/config.py"],
+    "lines_added": 147,
+    "lines_removed": 23,
+    "key_change": "Two changes in same commit: (1) LRU embedding cache added with maxsize=50000; (2) batch_size increased from 256 to 1024 for throughput improvement"
+  },
+  "agents": [
+    {
+      "agent": "monitor",
+      "status": "triggered",
+      "timestamp": "2026-03-31T22:14:25Z",
+      "output": "CI failure detected on acme-corp/recommender — branch main, commit c2e8f91. Job: load-test. Process killed with exit code 137 (OOM). Memory grew from 1.2GB to 4.1GB in 2 minutes. Handing off to triage."
+    },
+    {
+      "agent": "triage",
+      "status": "complete",
+      "timestamp": "2026-03-31T22:14:41Z",
+      "tool_calls": [
+        {
+          "tool": "get_more_log",
+          "input": "offset=0, lines=200",
+          "summary": "Full load test log: memory growth is steady and linear — 3.2GB increase over ~120 seconds, no spikes; looks like a capacity ceiling, not a leak"
+        },
+        {
+          "tool": "get_file",
+          "input": "recommender/embedding_cache.py",
+          "summary": "Read cache implementation — LRU with maxsize=50000; each entry stores a user_id + 1536-dim float32 embedding ≈ 6.1KB; at capacity: ~300MB. Alone this is within limits."
+        },
+        {
+          "tool": "get_file",
+          "input": "recommender/batch_processor.py",
+          "summary": "Read batch processor — batch_size 256→1024 means 4× more embeddings held in-flight simultaneously; at peak: 1024 × 6.1KB ≈ 6MB per batch. Alone this is negligible."
+        },
+        {
+          "tool": "get_commit_diff",
+          "input": "c2e8f91",
+          "summary": "Both changes are in this single commit — cannot test them in isolation from CI history. Cache warm-up curve + batch concurrency interaction is non-deterministic without a profiler."
+        }
+      ],
+      "output": "Memory grew 3.2GB in 120s leading to OOM kill at the 4GB container limit. Two changes in c2e8f91 each contribute: (1) LRU cache with maxsize=50000 — at capacity ~300MB, acceptable alone; (2) batch_size 256→1024 — 4× more embeddings in-flight, ~6MB per batch, also acceptable alone. Cannot determine root cause without profiling: the interaction between cache warm-up concurrency and in-flight batch memory is non-deterministic, and both changes land in the same commit with no baseline for comparison. A rollback would fix the OOM but lose the intended perf gain — not the right call without knowing which change is responsible. Fix confidence: LOW.",
+      "severity": "high",
+      "affected_service": "recommender",
+      "regression_introduced_in": "c2e8f91"
+    },
+    {
+      "agent": "escalate",
+      "status": "complete",
+      "timestamp": "2026-03-31T22:14:48Z",
+      "output": "Escalation summary generated — human review required. ops-pilot cannot propose a safe fix without memory profiling data.",
+      "what_was_investigated": "OOM kill logs (4GB limit hit in ~120s), LRU cache implementation (maxsize=50000, ~300MB at capacity), batch processor (batch_size 256→1024, ~6MB per batch), and full commit diff for c2e8f91. Memory growth is linear — consistent with a capacity ceiling, not a classic leak.",
+      "what_was_inconclusive": "Cannot isolate which change caused OOM: both are in the same commit with no CI baseline between them. Cache warm-up concurrency + batch concurrency interact in a way that is non-deterministic without a memory profiler. Neither change causes OOM in isolation based on static analysis.",
+      "recommended_next_step": "Run memray or py-spy against the load test with each change applied separately. Start with batch_size=256 and the new cache enabled — if OOM disappears, the batch size is the culprit and lowering maxsize or batch_size is the fix. If OOM persists, the cache ceiling needs reducing.",
+      "slack_message": ":rotating_light: *OOM kill — recommender service* | branch `main` | commit `c2e8f91`\n\n*Investigated:* LRU cache (50k entries, ~300MB at capacity) + batch_size 256→1024. Memory grew 3.2GB in 2 min. Static analysis cannot isolate root cause — both changes land in the same commit.\n\n*⚠️ Human review required* — ops-pilot cannot propose a safe fix without memory profiling data.\n\n*Recommended:* Run memray with each change in isolation. Start by testing batch_size=256 with cache enabled.\n\n*Severity:* HIGH | _ops-pilot_"
+    },
+    {
+      "agent": "notify",
+      "status": "complete",
+      "timestamp": "2026-03-31T22:14:49Z",
+      "output": "Team notified via Slack #ml-eng-oncall.",
+      "slack_message": ":rotating_light: *OOM kill — recommender service* | branch `main` | commit `c2e8f91`\n\n*Investigated:* LRU cache (50k entries, ~300MB at capacity) + batch_size 256→1024. Memory grew 3.2GB in 2 min. Static analysis cannot isolate root cause — both changes land in the same commit.\n\n*⚠️ Human review required* — ops-pilot cannot propose a safe fix without memory profiling data.\n\n*Recommended:* Run memray with each change in isolation. Start by testing batch_size=256 with cache enabled.\n\n*Severity:* HIGH | _ops-pilot_"
+    }
+  ]
+}

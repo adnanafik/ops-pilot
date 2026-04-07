@@ -44,6 +44,18 @@ class RateLimitsConfig(BaseModel):
     )
 
 
+class TrustConfig(BaseModel):
+    """Trust and explainability configuration."""
+
+    explanation_model: str = Field(
+        default="",
+        description=(
+            "Model for pre-action explanation calls. "
+            "Empty string = use the same model as the main agent."
+        ),
+    )
+
+
 class PipelineConfig(BaseModel):
     """Configuration for a single monitored repository."""
 
@@ -147,6 +159,12 @@ class OpsPilotConfig(BaseModel):
     rate_limits: RateLimitsConfig = Field(
         default_factory=RateLimitsConfig,
         description="Per-deployment rate limiting configuration.",
+    )
+
+    # Trust and explainability
+    trust: TrustConfig = Field(
+        default_factory=TrustConfig,
+        description="Trust and explainability configuration.",
     )
 
     # AWS Bedrock

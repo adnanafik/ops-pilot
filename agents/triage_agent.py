@@ -33,6 +33,7 @@ from shared.agent_loop import AgentLoop, LoopOutcome, LoopResult, Permission, To
 from shared.models import AgentStatus, Failure, Severity, Triage
 from shared.tenant_context import TenantContext
 from shared.tool_registry import ToolRegistry
+from shared.trust_context import TrustContext
 
 if TYPE_CHECKING:
     from providers.base import CIProvider
@@ -93,12 +94,14 @@ class TriageAgent(BaseAgent[Triage]):
         registry: ToolRegistry | None = None,
         context_budget: ContextBudget | None = None,
         tenant_context: TenantContext | None = None,
+        trust_context: TrustContext | None = None,
     ) -> None:
         super().__init__(backend=backend, model=model)
         self._provider = provider
         self._max_turns = max_turns
         self._context_budget = context_budget
         self._tenant_context = tenant_context
+        self._trust_context = trust_context
         if registry is None:
             registry = ToolRegistry()
             registry.register(GetFileTool())
@@ -159,6 +162,8 @@ class TriageAgent(BaseAgent[Triage]):
             max_turns=self._max_turns,
             context_budget=self._context_budget,
             tenant_context=self._tenant_context,
+            trust_context=self._trust_context,
+            actor="TriageAgent",
         )
         ctx = ToolContext(
             provider=self._provider,

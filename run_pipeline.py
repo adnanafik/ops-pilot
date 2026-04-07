@@ -31,10 +31,13 @@ from agents.triage_agent import TriageAgent
 from agents.fix_agent import FixAgent
 from agents.notify_agent import NotifyAgent
 from shared.config import load_config
+from shared.escalation import generate_escalation_summary
+from shared.llm_backend import make_backend
 from shared.memory_store import MemoryStore, make_memory_record
 from shared.task_queue import TaskQueue
 from shared.state_store import StateStore
 from shared.tenant_context import make_tenant_context
+from shared.trust_context import make_trust_context
 
 
 SCENARIOS_DIR = Path(__file__).parent / "demo" / "scenarios"
@@ -102,7 +105,9 @@ def run_pipeline(scenario_id: str, dry_run: bool = False) -> int:
 
     failure = load_scenario(scenario_id)
     config = load_config()
+    backend = make_backend(config)
     tenant_ctx = make_tenant_context(config)
+    trust_ctx = make_trust_context(config, backend)
     memory_store = MemoryStore()
     store = StateStore(path=f"ops_pilot_state_{scenario_id}.json")
     queue = TaskQueue()
@@ -127,7 +132,12 @@ def run_pipeline(scenario_id: str, dry_run: bool = False) -> int:
 
     t0 = time.time()
     model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
-    triage_agent = TriageAgent(model=model, tenant_context=tenant_ctx)
+    triage_agent = TriageAgent(
+        backend=backend,
+        model=model,
+        tenant_context=tenant_ctx,
+        trust_context=trust_ctx,
+    )
     triage = triage_agent.run(failure)
     elapsed = time.time() - t0
 
@@ -142,21 +152,34 @@ def run_pipeline(scenario_id: str, dry_run: bool = False) -> int:
     store.set(failure.id, "triage", triage.model_dump(mode="json"))
     queue.claim_next()
 
-    # ── 3. Fix ────────────────────────────────────────────────────────────────
-    banner("3 / 4  FIX", YELLOW)
-    step("fix", "Generating patch + PR description with Claude…")
+    # ── 3. Fix (or escalate) ──────────────────────────────────────────────────
+    fix = None
+    escalation = None
 
-    t0 = time.time()
-    fix_agent = FixAgent(model=model, demo_mode=True)  # demo_mode=True skips real GitHub API
-    fix = fix_agent.run(failure, triage)
-    elapsed = time.time() - t0
+    if triage.fix_confidence == "LOW":
+        banner("3 / 4  ESCALATE  (fix_confidence=LOW)", RED)
+        step("escalate", "Generating escalation summary — human review required…")
+        t0 = time.time()
+        escalation = generate_escalation_summary(failure, triage, backend=backend, model=model)
+        elapsed = time.time() - t0
+        step("escalate", f"Recommended: {escalation.recommended_next_step}")
+        step("escalate", f"Elapsed:     {elapsed:.1f}s  {YELLOW}⚠{RESET}")
+        store.set(failure.id, "escalation", escalation.model_dump(mode="json"))
+    else:
+        banner("3 / 4  FIX", YELLOW)
+        step("fix", "Generating patch + PR description with Claude…")
 
-    step("fix", f"PR title:  {BOLD}{fix.pr_title}{RESET}")
-    step("fix", f"PR URL:    {CYAN}{fix.pr_url}{RESET}")
-    step("fix", f"Elapsed:   {elapsed:.1f}s  {GREEN}✓{RESET}")
-    print(f"\n  {DIM}{fix.pr_body[:400]}{'…' if len(fix.pr_body) > 400 else ''}{RESET}\n")
+        t0 = time.time()
+        fix_agent = FixAgent(model=model, demo_mode=True)  # demo_mode=True skips real GitHub API
+        fix = fix_agent.run(failure, triage)
+        elapsed = time.time() - t0
 
-    store.set(failure.id, "fix", fix.model_dump(mode="json"))
+        step("fix", f"PR title:  {BOLD}{fix.pr_title}{RESET}")
+        step("fix", f"PR URL:    {CYAN}{fix.pr_url}{RESET}")
+        step("fix", f"Elapsed:   {elapsed:.1f}s  {GREEN}✓{RESET}")
+        print(f"\n  {DIM}{fix.pr_body[:400]}{'…' if len(fix.pr_body) > 400 else ''}{RESET}\n")
+
+        store.set(failure.id, "fix", fix.model_dump(mode="json"))
 
     # Record completed investigation to memory and usage tracker
     tenant_ctx.usage_tracker.record_incident()
@@ -170,7 +193,7 @@ def run_pipeline(scenario_id: str, dry_run: bool = False) -> int:
 
     t0 = time.time()
     notify_agent = NotifyAgent(model=model, demo_mode=True, channel="#platform-alerts")
-    alert = notify_agent.run(failure, triage, fix)
+    alert = notify_agent.run(failure, triage, fix=fix, escalation=escalation)
     elapsed = time.time() - t0
 
     step("notify", f"Channel:   {alert.channel}")

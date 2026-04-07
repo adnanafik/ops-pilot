@@ -22,3 +22,6 @@ venv311/
 
 # Usage tracking (per-deployment runtime data)
 usage/
+
+# Audit trail (per-deployment runtime data)
+audit/

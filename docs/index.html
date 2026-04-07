@@ -16,9 +16,11 @@
       --yellow: #d29922;
       --red: #f85149;
       --purple: #bc8cff;
+      --amber: #f0883e;
       --panel-inactive: #161b22;
       --panel-active: #1c2128;
       --panel-done: #0d1f0d;
+      --panel-escalated: #1f1a0d;
       --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
     }
 
@@ -82,6 +84,7 @@
     }
     .scenario-btn:hover { border-color: var(--accent); background: #1c2128; }
     .scenario-btn.active { border-color: var(--accent); background: #1a2535; color: var(--accent); }
+    .scenario-btn.active-escalation { border-color: var(--amber); background: #1f1a0d; color: var(--amber); }
     .scenario-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #pipeline-info {
@@ -123,6 +126,7 @@
     }
     .panel.running { border-color: var(--accent); background: var(--panel-active); box-shadow: 0 0 0 1px rgba(88,166,255,0.15); }
     .panel.done { border-color: var(--green); background: var(--panel-done); }
+    .panel.escalated { border-color: var(--amber); background: var(--panel-escalated); }
 
     .panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
     .panel-icon { font-size: 16px; }
@@ -138,6 +142,7 @@
     }
     .panel.running .status-dot { background: var(--accent); animation: pulse 1s infinite; }
     .panel.done .status-dot { background: var(--green); animation: none; }
+    .panel.escalated .status-dot { background: var(--amber); animation: none; }
 
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
@@ -147,9 +152,27 @@
       line-height: 1.5;
       min-height: 60px;
       word-break: break-word;
+      max-height: 220px;
+      overflow-y: auto;
     }
     .panel.running .panel-output,
-    .panel.done .panel-output { color: var(--text); }
+    .panel.done .panel-output,
+    .panel.escalated .panel-output { color: var(--text); }
+
+    /* Tool call animation lines */
+    .tool-call-line {
+      color: var(--accent);
+      font-size: 11px;
+      margin-top: 5px;
+      opacity: 0.9;
+    }
+    .tool-result-line {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 3px;
+      padding-left: 10px;
+      border-left: 2px solid var(--border);
+    }
 
     .cursor {
       display: inline-block;
@@ -191,6 +214,7 @@
       padding: 20px;
     }
     .result-card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 12px; }
+    .result-card.escalation-card { border-color: var(--amber); }
 
     .pr-title { font-size: 14px; color: var(--accent); margin-bottom: 8px; }
     .pr-link {
@@ -215,6 +239,35 @@
       margin-top: 8px;
       border-top: 1px solid var(--border);
       padding-top: 10px;
+    }
+
+    /* Escalation result card */
+    .escalation-badge {
+      color: var(--amber);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 14px;
+    }
+    .escalation-field {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
+    .escalation-field .field-label {
+      display: block;
+      color: var(--text);
+      font-weight: 700;
+      margin-bottom: 2px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .escalation-next {
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      margin-top: 4px;
+      color: var(--amber);
     }
 
     .slack-msg {
@@ -249,6 +302,7 @@
     }
     .how-it-works p { color: var(--muted); font-size: 13px; line-height: 1.8; margin-bottom: 12px; }
     .how-it-works code { color: var(--accent); font-size: 12px; }
+    .how-it-works strong { color: var(--text); }
 
     footer {
       text-align: center;
@@ -308,8 +362,8 @@
 
     <div class="panel" id="panel-fix">
       <div class="panel-header">
-        <span class="panel-icon">🔧</span>
-        <span class="panel-name">Fix</span>
+        <span class="panel-icon" id="fix-panel-icon">🔧</span>
+        <span class="panel-name" id="fix-panel-name">Fix</span>
         <span class="status-dot"></span>
       </div>
       <div class="panel-output" id="out-fix">Idle</div>
@@ -328,8 +382,8 @@
   <div id="results">
     <h2>Results</h2>
     <div class="results-grid">
-      <div class="result-card">
-        <h3>Draft Pull Request</h3>
+      <div class="result-card" id="left-result-card">
+        <h3 id="left-result-title">Draft Pull Request</h3>
         <div id="pr-content">—</div>
       </div>
       <div class="result-card">
@@ -343,11 +397,18 @@
 
   <div class="how-it-works">
     <h2>How it works</h2>
-    <p>ops-pilot runs four agents in sequence: <code>Monitor → Triage → Fix → Notify</code>.</p>
-    <p><code>MonitorAgent</code> polls GitHub Actions for failed runs and builds a typed <code>Failure</code> model from the log tail.</p>
-    <p><code>TriageAgent</code> sends the logs to Claude and extracts root cause, severity, and fix confidence into a structured <code>Triage</code> model.</p>
-    <p><code>FixAgent</code> asks Claude which file to edit, fetches it from GitHub, generates a minimal patch, and opens a draft PR — humans review before anything merges.</p>
-    <p><code>NotifyAgent</code> writes a concise Slack message via Claude and posts it to the configured channel.</p>
+    <p>ops-pilot runs an agentic pipeline: <code>Monitor → Triage → Fix (or Escalate) → Notify</code>.</p>
+
+    <p><code>MonitorAgent</code> polls GitHub Actions, GitLab CI, or Jenkins every 30 seconds. When a failure lands it builds a typed <code>Failure</code> model — log tail, diff summary, pipeline metadata — and hands off to triage.</p>
+
+    <p><code>TriageAgent</code> runs a <strong>tool-use loop</strong> instead of a single prompt. The model calls <code>get_file</code> to read source at the failing line, <code>get_more_log</code> to fetch earlier log sections (the root cause is often 50–100 lines above the tail), and <code>get_commit_diff</code> to read the actual diff hunks — until it decides it has enough evidence to conclude. You can see those tool calls above as each scenario runs. For complex incidents a <strong>CoordinatorAgent</strong> spawns parallel workers (log / source / diff) and aggregates their findings.</p>
+
+    <p>If triage confidence is <strong>HIGH or MEDIUM</strong>, <code>FixAgent</code> generates a minimal patch, commits it to a branch, and opens a <strong>draft PR</strong> — nothing merges without a human. If confidence is <strong>LOW</strong>, ops-pilot generates an <strong>escalation summary</strong> instead: what was investigated, what was inconclusive, and the recommended next step. Try the ⚠️ OOM scenario above to see this path.</p>
+
+    <p><code>NotifyAgent</code> posts either a fix-ready alert with the PR link, or a human-review-required escalation alert to Slack. Every tool call is written to a structured <strong>JSONL audit trail</strong>. Destructive actions — file commits and PR opens — get a pre-action LLM explanation logged before execution.</p>
+
+    <p>Additional capabilities: <strong>incident memory</strong> with weighted similarity retrieval surfaces past fixes before triage begins; <strong>context budgeting</strong> compacts tool results when the context window fills; <strong>per-tenant isolation</strong> with rate limiting for enterprise deployments. A weekly consolidation job distills raw incident logs into durable fix patterns.</p>
+
     <p>This demo replays pre-recorded runs — click any scenario above to see the full pipeline in action.</p>
   </div>
 </main>
@@ -358,18 +419,21 @@
 </footer>
 
 <script>
-  // Scenario definitions — fetched from static JSON files (no server needed)
   const SCENARIOS = [
     { id: 'null_pointer_auth',         label: '🔴 Null pointer crash — auth service' },
     { id: 'missing_dependency_docker', label: '📦 Missing dependency — Docker build' },
     { id: 'flaky_integration_test',    label: '🔁 Flaky integration test — payments' },
+    { id: 'oom_kill_recommender',      label: '⚠️ OOM kill — recommender (escalation)' },
   ];
 
   const TYPEWRITER_SPEED = 18; // ms per character
-  const AGENT_PAUSE     = 600; // ms between agents
+  const AGENT_PAUSE      = 600; // ms between agents
+  const TOOL_CALL_PAUSE  = 550; // ms after showing call line
+  const TOOL_RESULT_PAUSE = 380; // ms after showing result line
 
-  let running = false;
-  let aborted = false;
+  let running  = false;
+  let aborted  = false;
+  let isEscalationScenario = false;
 
   // ── Bootstrap ───────────────────────────────────────────────────────────────
   function init() {
@@ -389,8 +453,9 @@
     if (running) return;
     running = true;
     aborted = false;
+    isEscalationScenario = false;
 
-    document.querySelectorAll('.scenario-btn').forEach(b => { b.classList.remove('active'); b.disabled = true; });
+    document.querySelectorAll('.scenario-btn').forEach(b => { b.classList.remove('active', 'active-escalation'); b.disabled = true; });
     btn.classList.add('active');
     resetPanels();
     document.getElementById('results').classList.remove('visible');
@@ -405,6 +470,13 @@
       console.error('Failed to load scenario', e);
       running = false;
       return;
+    }
+
+    // Detect escalation scenario
+    isEscalationScenario = scenario.agents.some(s => s.agent === 'escalate');
+    if (isEscalationScenario) {
+      btn.classList.remove('active');
+      btn.classList.add('active-escalation');
     }
 
     showPipelineInfo(scenario.pipeline);
@@ -424,17 +496,61 @@
 
   // ── Animate one agent step ──────────────────────────────────────────────────
   async function runAgentStep(step) {
-    const agent = step.agent;
-    setPanel(agent, 'running');
-    setOutput(agent, '');
+    // Map escalate step onto the fix panel
+    const panelAgent = step.agent === 'escalate' ? 'fix' : step.agent;
 
-    await typewrite(agent, step.output);
+    // Update Fix panel label for escalation
+    if (step.agent === 'escalate') {
+      document.getElementById('fix-panel-icon').textContent = '⚠️';
+      document.getElementById('fix-panel-name').textContent = 'Escalate';
+    }
 
-    setPanel(agent, 'done');
+    setPanel(panelAgent, 'running');
+    setOutput(panelAgent, '');
 
-    if (step.severity) showSeverityBadge(step.severity);
+    // Show tool-use loop for triage (and any other step that has tool_calls)
+    if (step.tool_calls && step.tool_calls.length > 0) {
+      await showToolCallSteps(panelAgent, step.tool_calls);
+      if (!aborted) setOutput(panelAgent, ''); // clear tool calls, then show conclusion
+    }
+
+    await typewrite(panelAgent, step.output);
+
+    // Done state — escalation uses amber, normal uses green
+    const doneClass = step.agent === 'escalate' ? 'escalated' : 'done';
+    setPanel(panelAgent, doneClass);
+
+    if (step.severity)      showSeverityBadge(step.severity);
     if (step.pr_title)      showPrResult(step);
+    if (step.agent === 'escalate') showEscalationResult(step);
     if (step.slack_message) showSlackResult(step.slack_message);
+  }
+
+  // ── Animate tool call steps inside a panel ──────────────────────────────────
+  async function showToolCallSteps(agent, toolCalls) {
+    const el = document.getElementById(`out-${agent}`);
+
+    for (const tc of toolCalls) {
+      if (aborted) break;
+
+      const callLine = document.createElement('div');
+      callLine.className = 'tool-call-line';
+      callLine.textContent = `⟩ ${tc.tool}(${tc.input || ''})`;
+      el.appendChild(callLine);
+
+      await sleep(TOOL_CALL_PAUSE);
+      if (aborted) break;
+
+      const resultLine = document.createElement('div');
+      resultLine.className = 'tool-result-line';
+      resultLine.textContent = `↳ ${tc.summary}`;
+      el.appendChild(resultLine);
+
+      // Scroll to bottom as lines accumulate
+      el.scrollTop = el.scrollHeight;
+
+      await sleep(TOOL_RESULT_PAUSE);
+    }
   }
 
   // ── Typewriter effect ───────────────────────────────────────────────────────
@@ -443,7 +559,6 @@
       const el = document.getElementById(`out-${agent}`);
       let i = 0;
 
-      // Add blinking cursor
       const cursor = document.createElement('span');
       cursor.className = 'cursor';
       el.appendChild(cursor);
@@ -455,7 +570,6 @@
           resolve();
           return;
         }
-        // Batch a few chars per frame for speed
         const chunk = text.slice(i, i + 3);
         cursor.insertAdjacentText('beforebegin', chunk);
         i += chunk.length;
@@ -473,6 +587,13 @@
       document.getElementById(`panel-${agent}`).className = 'panel';
       document.getElementById(`out-${agent}`).textContent = agent === 'monitor' ? 'Waiting for CI failure…' : 'Idle';
     });
+    // Reset Fix panel icon/label (may have been changed to Escalate)
+    document.getElementById('fix-panel-icon').textContent = '🔧';
+    document.getElementById('fix-panel-name').textContent = 'Fix';
+    // Reset left result card
+    document.getElementById('left-result-card').classList.remove('escalation-card');
+    document.getElementById('left-result-title').textContent = 'Draft Pull Request';
+
     document.getElementById('severity-badge').innerHTML = '';
     document.getElementById('pipeline-info').innerHTML = '';
     document.getElementById('pr-content').innerHTML = '—';
@@ -497,6 +618,27 @@
       <div class="pr-title">${esc(step.pr_title)}</div>
       <a class="pr-link" href="${esc(step.pr_url || '#')}" target="_blank">View PR #${esc(String(step.pr_number || '?'))} →</a>
       <div class="pr-body">${esc(step.pr_body || '')}</div>
+    `;
+  }
+
+  function showEscalationResult(step) {
+    const card = document.getElementById('left-result-card');
+    card.classList.add('escalation-card');
+    document.getElementById('left-result-title').textContent = 'Escalation Summary';
+    document.getElementById('pr-content').innerHTML = `
+      <div class="escalation-badge">⚠️ Human review required — no PR opened</div>
+      <div class="escalation-field">
+        <span class="field-label">Investigated</span>
+        ${esc(step.what_was_investigated || '')}
+      </div>
+      <div class="escalation-field">
+        <span class="field-label">Inconclusive</span>
+        ${esc(step.what_was_inconclusive || '')}
+      </div>
+      <div class="escalation-field escalation-next">
+        <span class="field-label">Recommended next step</span>
+        ${esc(step.recommended_next_step || '')}
+      </div>
     `;
   }
 
@@ -527,7 +669,7 @@
     resetPanels();
     document.getElementById('results').classList.remove('visible');
     document.getElementById('reset-btn').style.display = 'none';
-    document.querySelectorAll('.scenario-btn').forEach(b => { b.classList.remove('active'); b.disabled = false; });
+    document.querySelectorAll('.scenario-btn').forEach(b => { b.classList.remove('active', 'active-escalation'); b.disabled = false; });
   });
 
   init();

@@ -57,7 +57,24 @@
       "agent": "triage",
       "status": "complete",
       "timestamp": "2026-03-28T14:26:52Z",
-      "output": "Root cause identified: commit a3f21b7 removed a null-guard in SessionManager.__init__ (auth/session_manager.py:87). Redis returns None for uncached sessions in the test environment — previously this raised a ValueError (caught by callers), now None propagates to rotate_token() causing AttributeError. This is a regression introduced by the OAuth refresh token feature. Fix confidence: HIGH.",
+      "tool_calls": [
+        {
+          "tool": "get_more_log",
+          "input": "offset=0, lines=80",
+          "summary": "80 earlier lines fetched — Redis returning None for session:usr_abc123 appears 12 lines above the AttributeError tail"
+        },
+        {
+          "tool": "get_file",
+          "input": "auth/session_manager.py",
+          "summary": "Read lines 80-95 — null-guard (raise ValueError on None) was present before this commit, removed in a3f21b7 with no replacement"
+        },
+        {
+          "tool": "get_commit_diff",
+          "input": "a3f21b7",
+          "summary": "Full diff confirms: only the null-guard removal is relevant; no other changes affect the hydration path"
+        }
+      ],
+      "output": "Root cause: commit a3f21b7 removed a null-guard in SessionManager.__init__ (auth/session_manager.py:87). Redis returns None for uncached sessions in the test environment — previously this raised ValueError (caught by callers), now None propagates to rotate_token() causing AttributeError. Regression introduced by this commit. Fix confidence: HIGH.",
       "severity": "high",
       "affected_service": "auth-service",
       "regression_introduced_in": "a3f21b7"
@@ -68,7 +85,7 @@
       "timestamp": "2026-03-28T14:27:08Z",
       "output": "Fix generated and draft PR opened.",
       "pr_title": "fix(auth): restore null-guard in SessionManager Redis hydration",
-      "pr_body": "## Problem\nCommit `a3f21b7` removed a null-guard in `SessionManager.__init__` that previously raised `ValueError` when Redis returned `None` for an uncached session. This causes `AttributeError` in all callers that invoke methods on the resulting `None` object.\n\n## Root cause\n`auth/session_manager.py` line 87 — removed guard:\n```python\n# Before (safe)\nif raw is None:\n    raise ValueError(f'Session not found for user {user_id}')\n\n# After a3f21b7 (broken)\n# guard removed — None propagates silently\n```\n\n## Fix\nRestore the null-guard. Callers are already handling `ValueError` correctly.\n\n## Tests\n`test_refresh_token_rotation` and `test_expired_session_cleanup` will pass after this fix.\n\n---\n*This PR was opened automatically by ops-pilot.*",
+      "pr_body": "## Problem\nCommit `a3f21b7` removed a null-guard in `SessionManager.__init__` that previously raised `ValueError` when Redis returned `None` for an uncached session. This causes `AttributeError` in all callers that invoke methods on the resulting `None` object.\n\n## Root cause\n`auth/session_manager.py` line 87 — removed guard:\n```python\n# Before (safe)\nif raw is None:\n    raise ValueError(f'Session not found for user {user_id}')\n\n# After a3f21b7 (broken)\n# guard removed — None propagates silently\n```\n\n## Fix\nRestore the null-guard. Callers are already handling `ValueError` correctly.\n\n## Tests\n`test_refresh_token_rotation` and `test_expired_session_cleanup` will pass after this fix.\n\n---\n*This PR was opened automatically by ops-pilot. Every tool call is logged to the audit trail.*",
       "pr_url": "https://github.com/acme-corp/platform/pull/1847",
       "pr_number": 1847
     },

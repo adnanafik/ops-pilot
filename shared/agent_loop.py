@@ -35,6 +35,7 @@ from shared.tenant_context import TenantContext
 if TYPE_CHECKING:
     from providers.base import CIProvider
     from shared.models import Failure
+    from shared.trust_context import TrustContext
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,8 @@ class AgentLoop(Generic[T]):
         confirm: Callable[[Tool, dict], Awaitable[bool]] | None = None,
         context_budget: ContextBudget | None = None,
         tenant_context: TenantContext | None = None,
+        trust_context: TrustContext | None = None,
+        actor: str = "agent",
     ) -> None:
         self._tools: dict[str, Tool] = {t.name: t for t in tools}
         self._confirm = confirm
@@ -281,6 +284,8 @@ class AgentLoop(Generic[T]):
         self._max_tokens = max_tokens
         self._context_budget = context_budget
         self._tenant_context = tenant_context
+        self._trust_context = trust_context
+        self._actor = actor
 
         # Full system prompt = domain instructions + loop mechanics footer.
         # The schema is embedded in the footer so the model knows the shape
@@ -411,7 +416,7 @@ class AgentLoop(Generic[T]):
             # appended results one at a time as they finish, you'd get malformed
             # interleaved history. Execute everything, then do one append.
             tool_results = await self._execute_tools_concurrent(
-                tool_uses, ctx, failed_tools
+                tool_uses, ctx, failed_tools, last_text
             )
 
             # ── Step 5: Append one user message with ALL results ─────────────
@@ -455,6 +460,7 @@ class AgentLoop(Generic[T]):
         tool_uses: list[ToolUseBlock],
         ctx: ToolContext,
         failed_tools: list[str],  # mutated in-place to track cumulative failures
+        last_text: str = "",
     ) -> list[dict]:
         """Execute all tool calls concurrently; return results in original order.
 
@@ -462,18 +468,41 @@ class AgentLoop(Generic[T]):
         order. Result[i] always corresponds to tool_uses[i]. This matters because
         the API matches tool_result blocks to tool_use blocks by id, and the order
         must match the tool_use order in the preceding assistant message.
+
+        Args:
+            tool_uses:    Tool call blocks from the current assistant turn.
+            ctx:          Runtime context injected into tool.execute().
+            failed_tools: Cumulative list of errored tool names — mutated in-place.
+            last_text:    Last assistant text, used as context for explanation generation.
         """
         async def run_one(block: ToolUseBlock) -> dict:
             tool = self._tools.get(block.name)
+            tenant_id = (
+                self._tenant_context.tenant_id
+                if self._tenant_context is not None
+                else ""
+            )
+
             if tool is None:
                 failed_tools.append(block.name)
+                result_content = (
+                    f"Unknown tool '{block.name}'. "
+                    f"Available tools: {sorted(self._tools.keys())}"
+                )
+                if self._trust_context is not None:
+                    self._trust_context.audit_log.record(
+                        tenant_id=tenant_id,
+                        actor=self._actor,
+                        tool_name=block.name,
+                        tool_input=block.input,
+                        tool_result=result_content,
+                        is_error=True,
+                        explanation=None,
+                    )
                 return {
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": (
-                        f"Unknown tool '{block.name}'. "
-                        f"Available tools: {sorted(self._tools.keys())}"
-                    ),
+                    "content": result_content,
                     "is_error": True,
                 }
 
@@ -484,72 +513,100 @@ class AgentLoop(Generic[T]):
                 and not self._tenant_context.permissions.is_allowed(block.name)
             ):
                 failed_tools.append(block.name)
+                result_content = (
+                    f"Tool '{block.name}' is not permitted for this deployment. "
+                    "Use an alternative tool or conclude without this data."
+                )
+                if self._trust_context is not None:
+                    self._trust_context.audit_log.record(
+                        tenant_id=tenant_id,
+                        actor=self._actor,
+                        tool_name=block.name,
+                        tool_input=block.input,
+                        tool_result=result_content,
+                        is_error=True,
+                        explanation=None,
+                    )
                 return {
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": (
-                        f"Tool '{block.name}' is not permitted for this deployment. "
-                        "Use an alternative tool or conclude without this data."
-                    ),
+                    "content": result_content,
                     "is_error": True,
                 }
 
             # ── Confirmation gate ────────────────────────────────────────────
-            # REQUIRES_CONFIRMATION tools are blocked unless a confirm hook is
-            # wired and approves. Fail-safe: no hook → denied. The model receives
-            # a clear error message and can adapt (explain what it would do, ask
-            # for escalation, etc.). Never silently skip the tool_result — the
-            # API requires every tool_use to have a paired result.
+            # Phase 7: if trust_context is set, generate explanation and auto-proceed.
+            # Phase 8 will add a real approval gate here instead.
+            # Without trust_context, fall through to the existing confirm hook.
+            explanation: str | None = None
             if tool.permission == Permission.REQUIRES_CONFIRMATION:
-                approved = (
-                    self._confirm is not None
-                    and await self._confirm(tool, block.input)
-                )
-                if not approved:
-                    failed_tools.append(block.name)
-                    return {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": (
-                            f"Tool '{block.name}' requires explicit confirmation "
-                            "before execution. No confirmation hook is configured "
-                            "— action blocked. Summarise what you intended to do "
-                            "and why, so a human can review and approve."
-                        ),
-                        "is_error": True,
-                    }
+                if self._trust_context is not None:
+                    explanation = self._trust_context.explanation_generator.generate(
+                        tool_name=block.name,
+                        tool_input=block.input,
+                        context_summary=last_text,
+                    )
+                    # auto-proceed — observability without blocking
+                else:
+                    approved = (
+                        self._confirm is not None
+                        and await self._confirm(tool, block.input)
+                    )
+                    if not approved:
+                        failed_tools.append(block.name)
+                        return {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": (
+                                f"Tool '{block.name}' requires explicit confirmation "
+                                "before execution. No confirmation hook is configured "
+                                "— action blocked. Summarise what you intended to do "
+                                "and why, so a human can review and approve."
+                            ),
+                            "is_error": True,
+                        }
 
+            # ── Execute ──────────────────────────────────────────────────────
+            is_error = False
+            result_content = ""
             try:
                 result = await asyncio.wait_for(
                     tool.execute(block.input, ctx),
                     timeout=self._tool_timeout,
                 )
+                is_error = result.is_error
+                result_content = result.content
                 if result.is_error:
                     failed_tools.append(block.name)
-                return {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result.content,
-                    **({"is_error": True} if result.is_error else {}),
-                }
             except TimeoutError:
                 failed_tools.append(block.name)
+                is_error = True
+                result_content = f"Tool timed out after {self._tool_timeout}s. Try requesting fewer lines."
                 logger.warning("Tool '%s' timed out after %.1fs", block.name, self._tool_timeout)
-                return {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": f"Tool timed out after {self._tool_timeout}s. Try requesting fewer lines.",
-                    "is_error": True,
-                }
             except Exception as exc:
                 failed_tools.append(block.name)
+                is_error = True
+                result_content = f"Tool error: {exc}"
                 logger.warning("Tool '%s' raised: %s", block.name, exc)
-                return {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": f"Tool error: {exc}",
-                    "is_error": True,
-                }
+
+            # ── Audit log ────────────────────────────────────────────────────
+            if self._trust_context is not None:
+                self._trust_context.audit_log.record(
+                    tenant_id=tenant_id,
+                    actor=self._actor,
+                    tool_name=block.name,
+                    tool_input=block.input,
+                    tool_result=result_content,
+                    is_error=is_error,
+                    explanation=explanation,
+                )
+
+            return {
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": result_content,
+                **({"is_error": True} if is_error else {}),
+            }
 
         return list(await asyncio.gather(*[run_one(b) for b in tool_uses]))
 

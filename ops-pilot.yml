@@ -12,6 +12,12 @@ github_token: ${GITHUB_TOKEN}
 # slack_bot_token: ${SLACK_BOT_TOKEN}
 # slack_webhook_url: ${SLACK_WEBHOOK_URL}
 
+# ── Trust & explainability (Phase 7) ─────────────────────────────────────────
+# Leave explanation_model empty to reuse the main model for pre-action explanations.
+# Set to a faster/cheaper model (e.g. claude-haiku-4-5-20251001) to reduce latency.
+trust:
+  explanation_model: ""
+
 # ── Watcher settings ──────────────────────────────────────────────────────────
 poll_interval_seconds: 30
 state_file: ops_pilot_state.json

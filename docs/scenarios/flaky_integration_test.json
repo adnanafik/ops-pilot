@@ -46,7 +46,7 @@
     "files_changed": ["payments/processor.py", "payments/webhook_handler.py", "tests/integration/test_payment_flow.py"],
     "lines_added": 201,
     "lines_removed": 87,
-    "key_change": "PaymentProcessor extracted into standalone class. Webhook handler now persists idempotency keys to Postgres instead of in-memory dict. Test does not reset Postgres state between the two webhook calls — idempotency key from call 1 is still present when call 2 runs, causing 409 instead of 200."
+    "key_change": "PaymentProcessor extracted into standalone class. Webhook handler now persists idempotency keys to Postgres instead of in-memory dict. Test does not reset Postgres state between the two webhook calls."
   },
   "agents": [
     {
@@ -59,7 +59,29 @@
       "agent": "triage",
       "status": "complete",
       "timestamp": "2026-03-30T03:52:31Z",
-      "output": "Root cause identified — this is a test environment issue, NOT a production bug. Commit f7b93a1 moved idempotency key storage from an in-memory dict (reset automatically between requests in tests) to Postgres (persists across requests within the same test run). The test calls the webhook endpoint twice with the same payload without resetting Postgres state between calls. The 409 on the second call is correct production behavior — the test setup is wrong. Fix: add a teardown fixture that deletes idempotency keys from Postgres between test calls, or generate a unique idempotency key per test run. Production code is correct. Fix confidence: HIGH. Flakiness explained: test passes when the two POST calls happen across separate test sessions (key not present), fails when they share a session (key present from call 1).",
+      "tool_calls": [
+        {
+          "tool": "get_more_log",
+          "input": "offset=0, lines=100",
+          "summary": "Earlier logs show test passed on 7 of last 10 runs — failure is timing-dependent, not consistent"
+        },
+        {
+          "tool": "get_file",
+          "input": "payments/webhook_handler.py",
+          "summary": "Read webhook handler — idempotency keys now persisted to Postgres (was in-memory dict); keys survive across requests within the same test session"
+        },
+        {
+          "tool": "get_file",
+          "input": "tests/integration/test_payment_flow.py:100-120",
+          "summary": "Read test — no teardown fixture clears the idempotency_keys table between the two POST calls; key from call 1 is present when call 2 runs"
+        },
+        {
+          "tool": "get_commit_diff",
+          "input": "f7b93a1",
+          "summary": "Diff confirms storage migration: in-memory dict → Postgres. Production behavior (409 on duplicate) is correct — test setup is the regression"
+        }
+      ],
+      "output": "Root cause: this is a test environment issue, NOT a production bug. Commit f7b93a1 moved idempotency key storage from in-memory dict (reset automatically between requests) to Postgres (persists within the same test session). The test sends the same webhook twice without resetting the table — the 409 on the second call is correct production behavior. Flakiness explained: passes when two POSTs run across separate test sessions (key absent), fails when they share a session (key present from call 1). Fix: add teardown fixture to delete idempotency keys between calls. Fix confidence: HIGH.",
       "severity": "low",
       "affected_service": "payments",
       "regression_introduced_in": "f7b93a1",
@@ -71,7 +93,7 @@
       "timestamp": "2026-03-30T03:52:47Z",
       "output": "Fix generated and draft PR opened.",
       "pr_title": "fix(tests): reset Postgres idempotency keys between webhook calls in integration test",
-      "pr_body": "## Problem\n`test_stripe_webhook_idempotency` is flaky after `f7b93a1` moved idempotency key storage from in-memory to Postgres.\n\nThe test sends the same webhook payload twice to verify idempotency. With in-memory storage this worked fine — the dict was scoped per request. With Postgres, the key from call 1 persists when call 2 runs, so call 2 correctly returns 409 (idempotent rejection) rather than 200.\n\n**Production code is correct.** The test fixture needs updating.\n\n## Fix\nAdd a `@pytest.fixture` that cleans up the `idempotency_keys` table between calls:\n\n```python\n@pytest.fixture(autouse=True)\ndef clean_idempotency_keys(db_session):\n    yield\n    db_session.execute(text(\"DELETE FROM idempotency_keys WHERE created_at > NOW() - INTERVAL '5 minutes'\"))\n    db_session.commit()\n```\n\nAlternatively, generate a unique `idempotency_key` per test invocation so retries never collide.\n\n## Note\nThis is a test infrastructure fix only. No production code changes. The 409 behavior is correct and desirable.\n\n---\n*This PR was opened automatically by ops-pilot.*",
+      "pr_body": "## Problem\n`test_stripe_webhook_idempotency` is flaky after `f7b93a1` moved idempotency key storage from in-memory to Postgres.\n\nThe test sends the same webhook payload twice to verify idempotency. With in-memory storage this worked fine — the dict was scoped per request. With Postgres, the key from call 1 persists when call 2 runs, so call 2 correctly returns 409 rather than 200.\n\n**Production code is correct.** The test fixture needs updating.\n\n## Fix\nAdd a `@pytest.fixture` that cleans up the `idempotency_keys` table between calls:\n\n```python\n@pytest.fixture(autouse=True)\ndef clean_idempotency_keys(db_session):\n    yield\n    db_session.execute(text(\"DELETE FROM idempotency_keys WHERE created_at > NOW() - INTERVAL '5 minutes'\"))\n    db_session.commit()\n```\n\n## Note\nThis is a test infrastructure fix only. No production code changes.\n\n---\n*This PR was opened automatically by ops-pilot. Audit log entry written for all tool calls.*",
       "pr_url": "https://github.com/acme-corp/payments/pull/589",
       "pr_number": 589
     },

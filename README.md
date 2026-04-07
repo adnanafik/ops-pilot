@@ -81,16 +81,30 @@ flowchart LR
     A["💥 CI Failure\nGitHub · GitLab · Jenkins"] --> B
 
     subgraph agents ["ops-pilot agents"]
-        direction LR
+        direction TB
         B["👁 Monitor\npolls for failures"] --> C["🔍 Triage\nroot cause + severity"]
-        C --> D["🔧 Fix\npatch + draft PR"]
-        D --> E["🔔 Notify\nSlack message"]
+        C -->|"fix_confidence\n≥ MEDIUM"| D["🔧 Fix\npatch + draft PR"]
+        C -->|"fix_confidence\n= LOW"| ESC["⚠️ Escalate\nhuman review summary"]
+        D --> E["🔔 Notify\nfix-ready alert"]
+        ESC --> E2["🔔 Notify\nhuman-review alert"]
     end
 
     C <--> F["☁️ LLM Backend\nAnthropic · Bedrock · Vertex AI"]
     D <--> F
+    ESC <--> F
+
+    subgraph trust ["🔐 Trust layer (every tool call)"]
+        direction LR
+        T1["📋 Audit log\nJSONL per day"] 
+        T2["💬 Pre-action\nexplanation"]
+    end
+
+    D -.->|"REQUIRES_CONFIRMATION\ntools"| T2
+    D -.-> T1
+    C -.-> T1
 
     E --> G["📬 Slack / console"]
+    E2 --> G
     D --> H["🔀 Draft PR\nhuman reviews & merges"]
 ```
 
@@ -99,9 +113,11 @@ flowchart LR
 | Step | Agent | What it does |
 |------|-------|-------------|
 | 1 | **Monitor** | Polls GitHub Actions / GitLab CI / Jenkins every 30s. Finds new failed runs, fetches log output. |
-| 2 | **Triage** | Runs an agentic tool-use loop: reads source files, fetches earlier log sections, diffs commits — until it has enough signal to conclude. Returns root cause, severity (LOW→CRITICAL), affected service, and fix confidence. If confidence is LOW at turn limit, escalates to human instead of guessing. |
-| 3 | **Fix** | Asks Claude which files to change and how. Commits the patch to `ops-pilot/fix-<sha>`, opens a **draft** PR. Nothing merges without a human. |
-| 4 | **Notify** | Posts a one-paragraph Slack summary: what broke, why, and a link to the PR. Falls back to console output in dev mode. |
+| 2 | **Triage** | Runs an agentic tool-use loop: reads source files, fetches earlier log sections, diffs commits — until it has enough signal to conclude. Returns root cause, severity (LOW→CRITICAL), affected service, and fix confidence. |
+| 3 | **Fix or Escalate** | If confidence is MEDIUM or HIGH: commits a patch and opens a draft PR. If confidence is LOW: generates an escalation summary (what was investigated, what was inconclusive, recommended next step) — no PR is opened; a human is required. |
+| 4 | **Notify** | Posts a one-paragraph Slack summary: fix-ready alert with PR link, or escalation alert requesting human review. Falls back to console in dev mode. |
+
+Every tool call (file reads, commits, PR opens) is written to a structured JSONL audit log. Destructive tools (`update_file`, `open_draft_pr`) get a pre-action LLM explanation generated before execution — observable without blocking.
 
 **Deduplication:** ops-pilot uses open GitHub/GitLab PRs as its source of truth. If a PR for a commit already exists, it waits — it will never spam your repo with duplicate PRs, even after a crash or redeploy.
 
@@ -121,7 +137,7 @@ ops-pilot/
 │   ├── notify_agent.py         ← Slack / webhook / console notification
 │   └── tools/
 │       ├── triage_tools.py     ← GetFileTool, GetMoreLogTool, GetCommitDiffTool (READ_ONLY)
-│       ├── fix_tools.py        ← GetRepoTreeTool, CreateBranchTool, UpdateFileTool, OpenDraftPRTool (WRITE)
+│       ├── fix_tools.py        ← GetRepoTreeTool, CreateBranchTool (WRITE); UpdateFileTool, OpenDraftPRTool (REQUIRES_CONFIRMATION)
 │       └── coordinator_tools.py ← SpawnWorkerTool + LogWorker / SourceWorker / DiffWorker
 ├── providers/
 │   ├── base.py              ← CIProvider ABC (7 methods: get_failures, open_draft_pr, …)
@@ -132,13 +148,20 @@ ops-pilot/
 ├── shared/
 │   ├── models.py            ← Pydantic models: Failure → Triage → Fix → Alert → MemoryRecord
 │   ├── agent_loop.py        ← Generic AgentLoop[T]: tool-use loop + Tool ABC + ToolContext + confirm hook
-│   ├── tool_registry.py     ← ToolRegistry: permission-tier watermark (READ_ONLY ≤ WRITE ≤ DANGEROUS)
+│   ├── tool_registry.py     ← ToolRegistry: permission-tier watermark (READ_ONLY ≤ WRITE ≤ DANGEROUS ≤ REQUIRES_CONFIRMATION)
 │   ├── context_budget.py    ← ContextBudget: token estimation + Strategy A compaction
 │   ├── memory_store.py      ← MemoryStore: append + weighted similarity retrieval (no external deps)
-│   ├── config.py            ← YAML config + env-var substitution + validation
+│   ├── config.py            ← YAML config + env-var substitution + Pydantic validation (TrustConfig, RateLimitsConfig, PermissionsConfig)
 │   ├── llm_backend.py       ← LLMBackend Protocol + Anthropic / Bedrock / Vertex backends
 │   ├── task_queue.py        ← File-locked task queue (atomic rename, no broker needed)
-│   └── state_store.py       ← JSON state (dedup across restarts)
+│   ├── state_store.py       ← JSON state (dedup across restarts)
+│   ├── tenant_context.py    ← TenantContext: per-deployment identity, usage tracker, tool permissions
+│   ├── rate_limiter.py      ← RateLimiter: sliding-window API call + token limits per tenant
+│   ├── usage_tracker.py     ← UsageTracker: per-tenant API call / token / incident counters
+│   ├── audit_log.py         ← AuditLog: one JSONL record per tool call, per-day rotation, atomic writes
+│   ├── explanation_gen.py   ← ExplanationGenerator: pre-action LLM explanation for REQUIRES_CONFIRMATION tools
+│   ├── escalation.py        ← EscalationSummary + generate_escalation_summary (LOW-confidence path)
+│   └── trust_context.py     ← TrustContext dataclass + make_trust_context factory
 ├── demo/
 │   ├── app.py               ← FastAPI SSE server for local demo
 │   ├── scenarios/           ← 3 pre-recorded realistic failure scenarios (JSON)
@@ -148,18 +171,26 @@ ops-pilot/
 │   ├── demo.gif             ← Animated walkthrough embedded in README
 │   └── scenarios/           ← Scenario JSON files served statically
 ├── tests/
-│   ├── conftest.py          ← Shared fixtures (sample_failure, mock_backend, …)
+│   ├── conftest.py                 ← Shared fixtures (sample_failure, mock_backend, …)
 │   ├── test_triage_agent.py
 │   ├── test_coordinator_agent.py
 │   ├── test_investigation_router.py
 │   ├── test_memory_store.py
 │   ├── test_fix_agent.py
+│   ├── test_fix_tools.py
 │   ├── test_notify_agent.py
 │   ├── test_monitor_agent.py
 │   ├── test_llm_client.py
 │   ├── test_state_store.py
 │   ├── test_task_queue.py
-│   └── fixtures/            ← Sample CI log files
+│   ├── test_agent_loop.py          ← AgentLoop + TrustContext integration tests
+│   ├── test_audit_log.py
+│   ├── test_explanation_gen.py
+│   ├── test_escalation.py
+│   ├── test_trust_context.py
+│   ├── test_tenant_context.py
+│   ├── test_rate_limiter.py
+│   └── fixtures/                   ← Sample CI log files
 ├── .claude/commands/        ← 5 Claude Code slash commands (see below)
 ├── memory/                  ← Incident memory (created at runtime)
 │   ├── incidents/           ← One JSON file per incident
@@ -304,6 +335,34 @@ turn N+1: assistant    → "NPE at TokenService.validate() line 42"
 
 Replacing the raw log with a stub loses nothing the model doesn't already have. Full-history summarization (Strategy B) would cost an extra LLM call on a context-stressed path, and the model summarizing its own reasoning can drop details that become relevant two turns later. Strategy B can slot in later by implementing the same `compact()` interface — the architecture supports it without changing `AgentLoop`.
 
+### Why per-deployment isolation instead of a runtime tenant switcher?
+
+`TenantContext` is constructed once at startup from the config file and injected into every agent. This means the deployment model is "one config file = one customer" — isolated processes, isolated state, isolated usage tracking. A bug in Customer A's pipeline cannot reach Customer B's memory or rate limit counters.
+
+The alternative — a shared process with a `tenant_id` routing key — would require every data store (memory, state, audit log) to be partitioned by tenant ID, and every agent to filter carefully. One missed filter = data leak. For an agentic system that writes files and opens PRs, the blast radius of a data-routing mistake is unacceptably high. Process isolation is boring and correct.
+
+### Why is `RateLimiter` a sliding window, not a fixed bucket?
+
+A fixed 1-hour bucket resets on the clock: a deployment could use its entire hourly quota in the last 10 minutes of the hour, then the full quota again in the first 10 minutes of the next — 200% in 20 minutes with no rate limit applied. A sliding window (per-call timestamps in a deque) means "at most N calls in any 60-minute window," which is what operators actually want when they say "1000 calls per hour."
+
+### Why a structured JSONL audit log instead of application logs?
+
+Application logs are for debugging; audit logs are for accountability. The difference: application logs are prose consumed by developers after a crash. Audit logs are structured records consumed by compliance tooling, dashboards, and incident reviewers after a breach or unexpected action.
+
+JSONL (one JSON object per line) makes the audit trail grep-friendly and ingestible by any log pipeline (CloudWatch, Datadog, Splunk) without a parser. Rotating by day (`audit/YYYY-MM-DD.jsonl`) bounds file size and maps naturally to retention policies ("keep 90 days"). Atomic writes (`mkstemp` + `rename`) prevent partial records if the process dies mid-write.
+
+### Why does `REQUIRES_CONFIRMATION` auto-proceed when `TrustContext` is present?
+
+Phase 7 is an *observability layer*, not an approval gate. The pre-action explanation is generated so that the audit log contains a human-readable record of *why* the agent decided to commit a file or open a PR — not to block the action waiting for a human click.
+
+Blocking confirmation (`Phase 8`) changes the system from "AI takes action, humans can audit" to "AI proposes action, human approves before execution." That's a fundamentally different product (and deployment model). Phase 7 establishes the explanation infrastructure that Phase 8 will reuse — the `confirm` hook in `AgentLoop` is already the extension point for that upgrade.
+
+### Why generate an escalation summary instead of returning LOW-confidence triage directly?
+
+A LOW-confidence `Triage` says "I'm not sure." An `EscalationSummary` says "here's what I investigated, here's what I couldn't pin down, and here's what you should do next." That's the difference between an alert that pages an engineer at 2 AM and makes them dig through the same evidence the agent already processed, versus an alert that hands off a structured investigation brief.
+
+The escalation summary is also what gets sent to Slack — engineers see a purpose-built "human review required" message, not a raw Triage object with `fix_confidence: LOW` that requires them to know what that field means.
+
 ### Why draft PRs, not auto-merge?
 
 ops-pilot is a force multiplier, not a replacement for engineering judgment. It opens the PR, writes the description, and notifies the team. A human reviews the diff and merges. This keeps the system useful without making it dangerous.
@@ -319,7 +378,7 @@ Raw dicts break silently when a key is missing. Pydantic validates at constructi
 No local Python install required — runs inside Docker:
 
 ```bash
-docker compose run --rm test                  # 256 tests
+docker compose run --rm test                  # 335 tests
 docker compose run --rm test pytest -k triage # single agent
 docker compose run --rm test ruff check agents/ shared/
 ```

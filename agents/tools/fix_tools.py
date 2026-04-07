@@ -7,9 +7,9 @@ Phase 3 workers can discover and use them.
 
 Permission levels:
   - GetRepoTreeTool : READ_ONLY  — safe listing, no side effects
-  - CreateBranchTool: WRITE      — creates a git branch
-  - UpdateFileTool  : WRITE      — commits a file change to a branch
-  - OpenDraftPRTool : WRITE      — opens a draft PR/MR
+  - CreateBranchTool: WRITE                — creates a git branch
+  - UpdateFileTool  : REQUIRES_CONFIRMATION — commits a file change to a branch
+  - OpenDraftPRTool : REQUIRES_CONFIRMATION — opens a draft PR/MR
 
 All tools are stateless. Runtime dependencies arrive via ToolContext.
 """
@@ -213,7 +213,7 @@ class UpdateFileTool(Tool):
 
     @property
     def permission(self) -> Permission:
-        return Permission.WRITE
+        return Permission.REQUIRES_CONFIRMATION
 
     async def execute(self, input: dict, ctx: ToolContext) -> ToolResult:
         if ctx.provider is None:
@@ -293,7 +293,7 @@ class OpenDraftPRTool(Tool):
 
     @property
     def permission(self) -> Permission:
-        return Permission.WRITE
+        return Permission.REQUIRES_CONFIRMATION
 
     async def execute(self, input: dict, ctx: ToolContext) -> ToolResult:
         if ctx.provider is None:

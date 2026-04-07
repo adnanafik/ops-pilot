@@ -177,8 +177,8 @@ class TestCreateBranchTool:
 # ── UpdateFileTool ─────────────────────────────────────────────────────────────
 
 class TestUpdateFileTool:
-    def test_permission_is_write(self) -> None:
-        assert UpdateFileTool().permission == Permission.WRITE
+    def test_permission_is_requires_confirmation(self) -> None:
+        assert UpdateFileTool().permission == Permission.REQUIRES_CONFIRMATION
 
     async def test_commits_file_via_provider(
         self, ctx: ToolContext, mock_provider: MagicMock
@@ -256,8 +256,8 @@ class TestUpdateFileTool:
 # ── OpenDraftPRTool ────────────────────────────────────────────────────────────
 
 class TestOpenDraftPRTool:
-    def test_permission_is_write(self) -> None:
-        assert OpenDraftPRTool().permission == Permission.WRITE
+    def test_permission_is_requires_confirmation(self) -> None:
+        assert OpenDraftPRTool().permission == Permission.REQUIRES_CONFIRMATION
 
     async def test_opens_pr_via_provider(
         self, ctx: ToolContext, mock_provider: MagicMock

@@ -889,3 +889,204 @@ class TestTenantContext:
         )
         assert len(tool.calls) == 1
         assert "record" not in result.failed_tools
+
+# ── Tests: TrustContext integration ───────────────────────────────────────────
+
+from shared.audit_log import AuditLog
+from shared.explanation_gen import ExplanationGenerator
+from shared.trust_context import TrustContext
+
+
+def _make_trust_context(
+    explanation_return: str = "About to patch auth.py.",
+    explanation_raises: bool = False,
+) -> TrustContext:
+    """Build a TrustContext with mock audit_log and explanation_generator."""
+    audit_log = MagicMock(spec=AuditLog)
+    explanation_gen = MagicMock(spec=ExplanationGenerator)
+    if explanation_raises:
+        explanation_gen.generate.side_effect = RuntimeError("backend down")
+    else:
+        explanation_gen.generate.return_value = explanation_return
+    return TrustContext(audit_log=audit_log, explanation_generator=explanation_gen)
+
+
+class TestTrustContextIntegration:
+    async def test_audit_record_written_after_every_tool_call(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """AuditLog.record() is called once for each tool execution."""
+        trust_ctx = _make_trust_context()
+        tool = RecordingTool("get_file")
+        backend = _make_backend([
+            _response(_tool_block("get_file", {"path": "auth.py"}, "t1")),
+            _response(_tool_block("get_file", {"path": "token.py"}, "t2")),
+            _end_turn(),
+        ])
+        loop = AgentLoop(
+            tools=[tool],
+            backend=backend,
+            domain_system_prompt="test",
+            response_model=Finding,
+            model="claude-sonnet-4-6",
+            max_turns=5,
+            trust_context=trust_ctx,
+            actor="TriageAgent",
+        )
+        await loop.run(messages=[{"role": "user", "content": "go"}], ctx=tool_ctx)
+        assert trust_ctx.audit_log.record.call_count == 2
+
+    async def test_actor_stamped_on_audit_records(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """The actor parameter is passed to every audit record."""
+        trust_ctx = _make_trust_context()
+        tool = RecordingTool("get_file")
+        backend = _make_backend([
+            _response(_tool_block("get_file", {}, "t1")),
+            _end_turn(),
+        ])
+        loop = AgentLoop(
+            tools=[tool],
+            backend=backend,
+            domain_system_prompt="test",
+            response_model=Finding,
+            model="claude-sonnet-4-6",
+            trust_context=trust_ctx,
+            actor="FixAgent",
+        )
+        await loop.run(messages=[{"role": "user", "content": "go"}], ctx=tool_ctx)
+        call_kwargs = trust_ctx.audit_log.record.call_args[1]
+        assert call_kwargs["actor"] == "FixAgent"
+
+    async def test_explanation_generated_before_requires_confirmation_tool(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """ExplanationGenerator.generate() is called before REQUIRES_CONFIRMATION tools."""
+        trust_ctx = _make_trust_context()
+        tool = ConfirmationTool()
+        backend = _make_backend([
+            _response(_tool_block("confirm_action", {}, "t1")),
+            _end_turn(),
+        ])
+        loop = AgentLoop(
+            tools=[tool],
+            backend=backend,
+            domain_system_prompt="test",
+            response_model=Finding,
+            model="claude-sonnet-4-6",
+            max_turns=5,
+            trust_context=trust_ctx,
+        )
+        await loop.run(messages=[{"role": "user", "content": "go"}], ctx=tool_ctx)
+        trust_ctx.explanation_generator.generate.assert_called_once()
+        assert tool.executed
+
+    async def test_no_explanation_for_read_only_tools(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """ExplanationGenerator.generate() is NOT called for READ_ONLY tools."""
+        trust_ctx = _make_trust_context()
+        tool = RecordingTool("safe_read")
+        backend = _make_backend([
+            _response(_tool_block("safe_read", {}, "t1")),
+            _end_turn(),
+        ])
+        loop = AgentLoop(
+            tools=[tool],
+            backend=backend,
+            domain_system_prompt="test",
+            response_model=Finding,
+            model="claude-sonnet-4-6",
+            trust_context=trust_ctx,
+        )
+        await loop.run(messages=[{"role": "user", "content": "go"}], ctx=tool_ctx)
+        trust_ctx.explanation_generator.generate.assert_not_called()
+        assert trust_ctx.audit_log.record.call_count == 1
+
+    async def test_requires_confirmation_auto_proceeds_with_trust_context(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """When trust_context is set, REQUIRES_CONFIRMATION tools auto-proceed."""
+        trust_ctx = _make_trust_context()
+        tool = ConfirmationTool()
+        backend = _make_backend([
+            _response(_tool_block("confirm_action", {}, "t1")),
+            _end_turn(),
+        ])
+        loop = AgentLoop(
+            tools=[tool],
+            backend=backend,
+            domain_system_prompt="test",
+            response_model=Finding,
+            model="claude-sonnet-4-6",
+            max_turns=5,
+            trust_context=trust_ctx,
+            confirm=None,
+        )
+        result = await loop.run(
+            messages=[{"role": "user", "content": "go"}], ctx=tool_ctx
+        )
+        assert tool.executed
+        assert "confirm_action" not in result.failed_tools
+
+    async def test_requires_confirmation_still_blocked_without_trust_context(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """Without trust_context, REQUIRES_CONFIRMATION behavior is unchanged."""
+        tool = ConfirmationTool()
+        backend = _make_backend([
+            _response(_tool_block("confirm_action", {}, "t1")),
+            _end_turn(),
+        ])
+        loop = _make_loop(tools=[tool], backend=backend)
+        result = await loop.run(
+            messages=[{"role": "user", "content": "go"}], ctx=tool_ctx
+        )
+        assert not tool.executed
+        assert "confirm_action" in result.failed_tools
+
+    async def test_explanation_recorded_in_audit_for_confirmation_tool(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """Audit record for REQUIRES_CONFIRMATION tool includes explanation."""
+        trust_ctx = _make_trust_context(explanation_return="Patching auth.py line 47.")
+        tool = ConfirmationTool()
+        backend = _make_backend([
+            _response(_tool_block("confirm_action", {}, "t1")),
+            _end_turn(),
+        ])
+        loop = AgentLoop(
+            tools=[tool],
+            backend=backend,
+            domain_system_prompt="test",
+            response_model=Finding,
+            model="claude-sonnet-4-6",
+            max_turns=5,
+            trust_context=trust_ctx,
+        )
+        await loop.run(messages=[{"role": "user", "content": "go"}], ctx=tool_ctx)
+        call_kwargs = trust_ctx.audit_log.record.call_args[1]
+        assert call_kwargs["explanation"] == "Patching auth.py line 47."
+
+    async def test_audit_explanation_is_none_for_read_only_tools(
+        self, tool_ctx: ToolContext
+    ) -> None:
+        """Audit record for READ_ONLY tool has explanation=None."""
+        trust_ctx = _make_trust_context()
+        tool = RecordingTool("safe_read")
+        backend = _make_backend([
+            _response(_tool_block("safe_read", {}, "t1")),
+            _end_turn(),
+        ])
+        loop = AgentLoop(
+            tools=[tool],
+            backend=backend,
+            domain_system_prompt="test",
+            response_model=Finding,
+            model="claude-sonnet-4-6",
+            trust_context=trust_ctx,
+        )
+        await loop.run(messages=[{"role": "user", "content": "go"}], ctx=tool_ctx)
+        call_kwargs = trust_ctx.audit_log.record.call_args[1]
+        assert call_kwargs["explanation"] is None

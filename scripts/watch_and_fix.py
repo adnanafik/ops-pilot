@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -64,6 +65,25 @@ def hdr(text: str, color: str = BLUE) -> None:
 def step(agent: str, msg: str, color: str = CYAN) -> None:
     ts = datetime.utcnow().strftime("%H:%M:%S")
     print(f"{DIM}[{ts}]{RESET} {color}{BOLD}{agent:12}{RESET} {msg}")
+
+
+def validate_env() -> None:
+    """Exit with a clear message if required environment variables are missing."""
+    demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+    if demo_mode:
+        return
+
+    if not api_key:
+        print(
+            f"\n{RED}{BOLD}ops-pilot: missing required environment variable{RESET}\n\n"
+            f"  {BOLD}ANTHROPIC_API_KEY{RESET} is not set.\n\n"
+            f"Please set it in your .env file.\n"
+            f"See Quickstart: https://github.com/adnanafik/ops-pilot#quickstart\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 # ── Pipeline runner ────────────────────────────────────────────────────────────
@@ -267,7 +287,7 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="Process current failures and exit")
     parser.add_argument("--dry-run", action="store_true", help="Triage only — no PRs or Slack")
     args = parser.parse_args()
-
+    validate_env()
     cfg = load_config(args.config)
 
     logging.basicConfig(
